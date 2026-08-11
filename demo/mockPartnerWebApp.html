@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JM Realestate — Tenancy Application (Occubuy SDK mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* JM Realestate style */
+    --jm-gold: #cda43c;
+    --jm-gold-dark: #a9822a;
+    --jm-ink: #23201b;
+    --jm-cream: #faf8f3;
+    --jm-hairline: #e7e0d0;
+    --jm-muted: #8a8272;
+    --jm-sans: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    --success: #15803d;
+    --danger: #b42318;
+    --radius: 10px;
+
+    /* Occubuy brand — sampled from app screenshots, used for the SDK widget only */
+    --occ-purple: #4a2c85;
+    --occ-purple-dark: #35205e;
+    --occ-lavender: #f1ecfa;
+    --occ-lavender-text: #cabbe8;
+    --occ-orange: #f4855c;
+    --occ-orange-dark: #ea6a3c;
+    --occ-font: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--jm-sans);
+    background: var(--jm-cream);
+    color: var(--jm-ink);
+  }
+
+  /* ---- Partner site chrome (JM Realestate) ---- */
+  header.partner-header {
+    background: #fff;
+    border-bottom: 1px solid var(--jm-hairline);
+    padding: 20px 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header.partner-header .logo {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--jm-gold);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 14px;
+  }
+  header.partner-header .brand-block { line-height: 1.15; }
+  header.partner-header .brand-name {
+    font-weight: 700; font-size: 17px; color: var(--jm-ink);
+  }
+  header.partner-header .brand-sub {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--jm-gold-dark); font-weight: 600;
+  }
+  header.partner-header .tag {
+    margin-left: auto; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase;
+    color: var(--jm-muted);
+  }
+
+  main {
+    max-width: 620px;
+    margin: 40px auto 72px;
+    padding: 0 20px;
+  }
+  h1.page-title {
+    font-weight: 700; font-size: 24px; margin: 0 0 6px; color: var(--jm-ink);
+  }
+  p.page-sub { color: var(--jm-muted); margin: 0 0 28px; font-size: 14px; line-height: 1.6; max-width: 46ch; }
+
+  .card {
+    background: #fff;
+    border: 1px solid var(--jm-hairline);
+    border-radius: 14px;
+    padding: 32px;
+    box-shadow: 0 1px 2px rgba(35,32,27,0.03), 0 12px 28px rgba(35,32,27,0.05);
+  }
+
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block; font-size: 11px; font-weight: 600; margin-bottom: 7px;
+    letter-spacing: 0.6px; text-transform: uppercase; color: var(--jm-muted);
+  }
+  .field input {
+    width: 100%; padding: 11px 13px; border: 1px solid var(--jm-hairline);
+    border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--jm-cream);
+    color: var(--jm-ink);
+  }
+  .field input:focus { outline: 2px solid var(--jm-gold); outline-offset: 1px; background: #fff; }
+  .field-row { display: flex; gap: 14px; }
+  .field-row .field { flex: 1; }
+  .field-hint { font-size: 11.5px; color: var(--jm-muted); margin-top: 5px; }
+
+  .consent {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--jm-cream); border: 1px solid var(--jm-hairline); border-radius: 10px;
+    padding: 14px 16px; margin: 22px 0;
+  }
+  .consent input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--jm-gold); }
+  .consent label { font-size: 13px; color: var(--jm-ink); line-height: 1.55; cursor: pointer; }
+
+  button.verify-btn {
+    width: 100%; padding: 14px; border: none; border-radius: 8px;
+    font-size: 13.5px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase;
+    cursor: not-allowed; font-family: inherit;
+    background: #ece7da; color: #a39c8a;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.05s ease;
+  }
+  button.verify-btn.active {
+    background: var(--jm-gold); color: #fff; cursor: pointer;
+  }
+  button.verify-btn.active:hover { background: var(--jm-gold-dark); }
+  button.verify-btn.active:active { transform: scale(0.99); }
+
+  .powered-by {
+    margin-top: 14px; text-align: center; font-size: 11px; color: var(--jm-muted); font-style: italic;
+  }
+
+  /* ---- Result banner (post-verification, shown on partner page) ---- */
+  .result-banner {
+    display: none;
+    align-items: center; gap: 14px;
+    background: var(--jm-cream); border: 1px solid var(--jm-hairline);
+    border-radius: 14px; padding: 18px 22px; margin-bottom: 22px;
+  }
+  .result-banner.show { display: flex; }
+  .result-banner .badge {
+    width: 38px; height: 38px; border-radius: 50%; background: var(--jm-gold);
+    color: #fff; display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0;
+  }
+  .result-banner .details b { font-size: 15px; font-weight: 700; color: var(--jm-ink); }
+  .result-banner .details div { font-size: 13px; color: var(--jm-muted); margin-top: 3px; }
+
+  /* ---- Simulated SDK widget (modal / "sandboxed iframe") ---- */
+  .widget-overlay {
+    display: none;
+    position: fixed; inset: 0; background: rgba(15, 18, 25, 0.55);
+    align-items: center; justify-content: center; z-index: 50;
+    padding: 20px;
+  }
+  .widget-overlay.show { display: flex; }
+  .widget-frame {
+    background: var(--occ-purple); font-family: var(--occ-font);
+    width: 100%; max-width: 400px; border-radius: 24px;
+    overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+  .widget-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px 0;
+  }
+  .widget-topbar .widget-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #fff; }
+  .widget-topbar .widget-brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--occ-orange); }
+  .widget-topbar button.close-x {
+    border: none; background: none; font-size: 20px; color: #fff; opacity: 0.75; cursor: pointer; line-height: 1;
+  }
+  .widget-topbar button.close-x:hover { opacity: 1; }
+  .widget-body { padding: 24px 24px 28px; min-height: 320px; display: flex; flex-direction: column; }
+
+  .widget-step { display: none; flex-direction: column; flex: 1; }
+  .widget-step.active { display: flex; }
+
+  .widget-step h2 { font-size: 22px; font-weight: 700; color: #fff; margin: 0 0 8px; line-height: 1.25; }
+  .widget-step p.sub { font-size: 13px; color: var(--occ-lavender-text); margin: 0 0 22px; line-height: 1.55; }
+
+  .bank-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .bank-option {
+    display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+    background: var(--occ-lavender); border: none; border-radius: 14px; cursor: pointer;
+    font-size: 14px; font-weight: 500; color: var(--occ-purple-dark);
+    transition: transform 0.05s ease, background 0.15s ease;
+  }
+  .bank-option:hover { background: #fff; }
+  .bank-option:active { transform: scale(0.98); }
+  .bank-option .bank-icon {
+    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700;
+  }
+
+  .widget-btn {
+    padding: 14px; border: none; border-radius: 14px; font-size: 15px; font-weight: 600;
+    font-family: var(--occ-font);
+    background: linear-gradient(135deg, var(--occ-orange), var(--occ-orange-dark));
+    color: #fff; cursor: pointer; margin-top: auto;
+    transition: filter 0.15s ease, transform 0.05s ease;
+  }
+  .widget-btn:hover { filter: brightness(1.05); }
+  .widget-btn:active { transform: scale(0.99); }
+  .widget-btn.secondary { background: none; color: var(--occ-lavender-text); border: 1px solid rgba(255,255,255,0.25); margin-top: 10px; }
+  .widget-btn.secondary:hover { background: rgba(255,255,255,0.06); filter: none; }
+
+  .spinner-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 18px; }
+  .spinner {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--occ-orange);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* success-wrap fills the space above the button; success-top sits at its
+     natural height and score-band gets auto top/bottom margins so it lands
+     centered in the leftover space between the score and the button below */
+  .success-wrap { display: flex; flex-direction: column; align-items: center; text-align: center; flex: 1; }
+  .success-top { display: flex; flex-direction: column; align-items: center; }
+  .success-check {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--occ-orange), var(--occ-orange-dark));
+    color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 10px;
+  }
+  .score-value { font-size: 44px; font-weight: 800; color: #fff; margin: 4px 0 0; }
+  .score-band {
+    display: inline-block; margin: auto 0; font-size: 12px; font-weight: 600;
+    color: var(--occ-purple-dark); background: var(--occ-orange);
+    padding: 4px 12px; border-radius: 999px;
+  }
+</style>
+</head>
+<body>
+
+<header class="partner-header">
+  <div class="logo">JM</div>
+  <div class="brand-block">
+    <div class="brand-name">JM Realestate</div>
+    <div class="brand-sub">Property &amp; Leasing</div>
+  </div>
+  <div class="tag">Prototype</div>
+</header>
+
+<main>
+  <h1 class="page-title">Complete your tenancy application</h1>
+  <p class="page-sub">
+    We use Occubuy Score to verify your rental score directly with your bank —
+    no separate login required.
+  </p>
+
+  <div class="result-banner" id="resultBanner">
+    <div class="badge">&#10003;</div>
+    <div class="details">
+      <b>Score verified — 822 (Strong)</b>
+      <div>Occubuy Score confirmed with your bank. Your application will proceed.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <form id="applicantForm">
+      <div class="field">
+        <label for="fullName">Full name</label>
+        <input id="fullName" name="fullName" type="text" placeholder="Jordan Lee" required />
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" placeholder="jordan@email.com" required />
+        </div>
+        <div class="field">
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" placeholder="04XX XXX XXX" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="dob">Date of birth</label>
+        <input id="dob" name="dob" type="date" required />
+        <div class="field-hint">Must be 18 or older, and match the details on your bank account.</div>
+      </div>
+
+      <div class="field">
+        <label for="address">Address</label>
+        <input id="address" name="address" type="text" placeholder="12 Example St, Sydney NSW 2000" required />
+        <div class="field-hint">Must match the details on your bank account.</div>
+      </div>
+
+      <div class="consent">
+        <input type="checkbox" id="consentCheck" />
+        <label for="consentCheck">
+          Yes, I agree to share the information above so Occubuy can verify my rental score with my bank.
+        </label>
+      </div>
+
+      <button type="submit" class="verify-btn" id="verifyBtn" disabled>Start Verification</button>
+      <div class="powered-by">Secured &amp; powered by Occubuy Score</div>
+    </form>
+  </div>
+</main>
+
+<!-- Simulated Occubuy SDK widget (stands in for the real sandboxed iframe) -->
+<div class="widget-overlay" id="widgetOverlay">
+  <div class="widget-frame">
+    <div class="widget-topbar">
+      <div class="widget-brand"><span class="dot"></span> Occubuy Score</div>
+      <button class="close-x" id="widgetClose" aria-label="Cancel verification">&times;</button>
+    </div>
+    <div class="widget-body">
+
+      <div class="widget-step active" id="stepIntro">
+        <h2>Verify your rental score</h2>
+        <p class="sub">
+          Occubuy securely checks your banking data to calculate your rental
+          score. JM Realestate only receives your final score, never your raw
+          bank data.
+        </p>
+        <button class="widget-btn" id="introContinueBtn">Continue to bank connection</button>
+      </div>
+
+      <div class="widget-step" id="stepBank">
+        <h2>Connect your bank</h2>
+        <p class="sub">Select the bank your income is paid into.</p>
+        <div class="bank-list">
+          <div class="bank-option" data-bank="Commonwealth Bank">
+            <div class="bank-icon" style="background:#fbbf24;">CBA</div> Commonwealth Bank
+          </div>
+          <div class="bank-option" data-bank="ANZ">
+            <div class="bank-icon" style="background:#2563eb;">ANZ</div> ANZ
+          </div>
+          <div class="bank-option" data-bank="Westpac">
+            <div class="bank-icon" style="background:#dc2626;">W</div> Westpac
+          </div>
+          <div class="bank-option" data-bank="NAB">
+            <div class="bank-icon" style="background:#111827;">NAB</div> NAB
+          </div>
+        </div>
+      </div>
+
+      <div class="widget-step" id="stepProcessing">
+        <div class="spinner-wrap">
+          <div class="spinner"></div>
+          <div>
+            <div style="font-weight:600;font-size:14px;color:#fff;">Verifying with your bank...</div>
+            <div style="font-size:12px;color:var(--occ-lavender-text);margin-top:4px;">This usually takes a few seconds.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="widget-step" id="stepSuccess">
+        <div class="success-wrap">
+          <div class="success-top">
+            <div class="success-check">&#10003;</div>
+            <div style="font-size:13px;color:var(--occ-lavender-text);">Your Occubuy Score</div>
+            <div class="score-value">822</div>
+          </div>
+          <div class="score-band">Strong</div>
+        </div>
+        <button class="widget-btn" id="successDoneBtn">Continue to JM Realestate</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // Mock of window.OccubuyScore.init(...) — mirrors the real SDK's public API
+  // shape so this prototype can later be swapped for dist/occubuy-sdk.iife.global.js
+  // with no changes to the calling code below.
+  const OccubuyScoreMock = {
+    init(config) {
+      if (!config || !config.apiKey) throw new Error("[OccubuyScore] init() requires an apiKey.");
+      return {
+        start() {
+          openWidget();
+        },
+      };
+    },
+  };
+
+  const consentCheck = document.getElementById("consentCheck");
+  const verifyBtn = document.getElementById("verifyBtn");
+  const applicantForm = document.getElementById("applicantForm");
+  const resultBanner = document.getElementById("resultBanner");
+
+  // Restrict date-of-birth picker to adults (18+) only — no future or under-18 dates selectable
+  const dobInput = document.getElementById("dob");
+  const toISODate = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  dobInput.max = toISODate(new Date(today.getFullYear() - 18, today.getMonth(), today.getDate()));
+  dobInput.min = toISODate(new Date(today.getFullYear() - 100, today.getMonth(), today.getDate()));
+
+  const widgetOverlay = document.getElementById("widgetOverlay");
+  const widgetClose = document.getElementById("widgetClose");
+  const steps = {
+    intro: document.getElementById("stepIntro"),
+    bank: document.getElementById("stepBank"),
+    processing: document.getElementById("stepProcessing"),
+    success: document.getElementById("stepSuccess"),
+  };
+
+  consentCheck.addEventListener("change", () => {
+    verifyBtn.disabled = !consentCheck.checked;
+    verifyBtn.classList.toggle("active", consentCheck.checked);
+  });
+
+  applicantForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!consentCheck.checked) return;
+    if (!applicantForm.checkValidity()) {
+      applicantForm.reportValidity();
+      return;
+    }
+
+    const formData = Object.fromEntries(new FormData(applicantForm).entries());
+
+    const scoreSdk = OccubuyScoreMock.init({
+      apiKey: "pk_sandbox_demo",
+      environment: "sandbox",
+      onComplete: (result) => showResult(result),
+      onCancel: () => closeWidget(),
+    });
+    scoreSdk._applicant = formData; // demo only — not part of the real SDK API
+    scoreSdk.start();
+  });
+
+  function showStep(name) {
+    Object.values(steps).forEach((el) => el.classList.remove("active"));
+    steps[name].classList.add("active");
+  }
+
+  function openWidget() {
+    showStep("intro");
+    widgetOverlay.classList.add("show");
+  }
+
+  function closeWidget() {
+    widgetOverlay.classList.remove("show");
+  }
+
+  document.getElementById("introContinueBtn").addEventListener("click", () => showStep("bank"));
+
+  document.querySelectorAll(".bank-option").forEach((opt) => {
+    opt.addEventListener("click", () => {
+      showStep("processing");
+      setTimeout(() => {
+        showStep("success");
+      }, 1800);
+    });
+  });
+
+  document.getElementById("successDoneBtn").addEventListener("click", () => {
+    closeWidget();
+    showResult({ status: "success", score: 822, band: "strong", verifiedAt: new Date().toISOString() });
+  });
+
+  widgetClose.addEventListener("click", closeWidget);
+
+  function showResult(result) {
+    resultBanner.classList.add("show");
+    resultBanner.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+</script>
+
+</body>
+</html>
