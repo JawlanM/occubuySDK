@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>JM Realestate — Tenancy Application (Occubuy SDK mock)</title>
+<title>JM Realestate — Tenancy Application (Occubuy SDK demo)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* JM Realestate style */
+    /* colors for the JM Realestate side of the page */
     --jm-gold: #cda43c;
     --jm-gold-dark: #a9822a;
     --jm-ink: #23201b;
@@ -21,15 +21,6 @@
     --success: #15803d;
     --danger: #b42318;
     --radius: 10px;
-
-    /* Occubuy brand — sampled from app screenshots, used for the SDK widget only */
-    --occ-purple: #4a2c85;
-    --occ-purple-dark: #35205e;
-    --occ-lavender: #f1ecfa;
-    --occ-lavender-text: #cabbe8;
-    --occ-orange: #f4855c;
-    --occ-orange-dark: #ea6a3c;
-    --occ-font: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
@@ -39,7 +30,7 @@
     color: var(--jm-ink);
   }
 
-  /* ---- Partner site chrome (JM Realestate) ---- */
+  /* this is the JM Realestate page itself, not the widget */
   header.partner-header {
     background: #fff;
     border-bottom: 1px solid var(--jm-hairline);
@@ -124,7 +115,7 @@
     margin-top: 14px; text-align: center; font-size: 11px; color: var(--jm-muted); font-style: italic;
   }
 
-  /* ---- Result banner (post-verification, shown on partner page) ---- */
+  /* this shows up after verification is done */
   .result-banner {
     display: none;
     align-items: center; gap: 14px;
@@ -139,88 +130,8 @@
   .result-banner .details b { font-size: 15px; font-weight: 700; color: var(--jm-ink); }
   .result-banner .details div { font-size: 13px; color: var(--jm-muted); margin-top: 3px; }
 
-  /* ---- Simulated SDK widget (modal / "sandboxed iframe") ---- */
-  .widget-overlay {
-    display: none;
-    position: fixed; inset: 0; background: rgba(15, 18, 25, 0.55);
-    align-items: center; justify-content: center; z-index: 50;
-    padding: 20px;
-  }
-  .widget-overlay.show { display: flex; }
-  .widget-frame {
-    background: var(--occ-purple); font-family: var(--occ-font);
-    width: 100%; max-width: 400px; border-radius: 24px;
-    overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
-  }
-  .widget-topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 18px 20px 0;
-  }
-  .widget-topbar .widget-brand { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #fff; }
-  .widget-topbar .widget-brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--occ-orange); }
-  .widget-topbar button.close-x {
-    border: none; background: none; font-size: 20px; color: #fff; opacity: 0.75; cursor: pointer; line-height: 1;
-  }
-  .widget-topbar button.close-x:hover { opacity: 1; }
-  .widget-body { padding: 24px 24px 28px; min-height: 320px; display: flex; flex-direction: column; }
-
-  .widget-step { display: none; flex-direction: column; flex: 1; }
-  .widget-step.active { display: flex; }
-
-  .widget-step h2 { font-size: 22px; font-weight: 700; color: #fff; margin: 0 0 8px; line-height: 1.25; }
-  .widget-step p.sub { font-size: 13px; color: var(--occ-lavender-text); margin: 0 0 22px; line-height: 1.55; }
-
-  .bank-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-  .bank-option {
-    display: flex; align-items: center; gap: 10px; padding: 14px 16px;
-    background: var(--occ-lavender); border: none; border-radius: 14px; cursor: pointer;
-    font-size: 14px; font-weight: 500; color: var(--occ-purple-dark);
-    transition: transform 0.05s ease, background 0.15s ease;
-  }
-  .bank-option:hover { background: #fff; }
-  .bank-option:active { transform: scale(0.98); }
-  .bank-option .bank-icon {
-    width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700;
-  }
-
-  .widget-btn {
-    padding: 14px; border: none; border-radius: 14px; font-size: 15px; font-weight: 600;
-    font-family: var(--occ-font);
-    background: linear-gradient(135deg, var(--occ-orange), var(--occ-orange-dark));
-    color: #fff; cursor: pointer; margin-top: auto;
-    transition: filter 0.15s ease, transform 0.05s ease;
-  }
-  .widget-btn:hover { filter: brightness(1.05); }
-  .widget-btn:active { transform: scale(0.99); }
-  .widget-btn.secondary { background: none; color: var(--occ-lavender-text); border: 1px solid rgba(255,255,255,0.25); margin-top: 10px; }
-  .widget-btn.secondary:hover { background: rgba(255,255,255,0.06); filter: none; }
-
-  .spinner-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 18px; }
-  .spinner {
-    width: 36px; height: 36px; border-radius: 50%;
-    border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--occ-orange);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* success-wrap fills the space above the button; success-top sits at its
-     natural height and score-band gets auto top/bottom margins so it lands
-     centered in the leftover space between the score and the button below */
-  .success-wrap { display: flex; flex-direction: column; align-items: center; text-align: center; flex: 1; }
-  .success-top { display: flex; flex-direction: column; align-items: center; }
-  .success-check {
-    width: 56px; height: 56px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--occ-orange), var(--occ-orange-dark));
-    color: #fff;
-    display: flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 10px;
-  }
-  .score-value { font-size: 44px; font-weight: 800; color: #fff; margin: 4px 0 0; }
-  .score-band {
-    display: inline-block; margin: auto 0; font-size: 12px; font-weight: 600;
-    color: var(--occ-purple-dark); background: var(--occ-orange);
-    padding: 4px 12px; border-radius: 999px;
-  }
+  /* the real SDK widget goes here, it brings its own styling with it */
+  #occubuy-widget { margin-bottom: 22px; }
 </style>
 </head>
 <body>
@@ -244,12 +155,23 @@
   <div class="result-banner" id="resultBanner">
     <div class="badge">&#10003;</div>
     <div class="details">
-      <b>Score verified — 822 (Strong)</b>
+      <b id="resultScoreText">Score verified</b>
       <div>Occubuy Score confirmed with your bank. Your application will proceed.</div>
     </div>
   </div>
 
-  <div class="card">
+  <div class="result-banner" id="declineBanner">
+    <div class="badge">&#8505;</div>
+    <div class="details">
+      <b>No worries, continuing without Occubuy</b>
+      <div>You chose not to share your score. Your application continues as normal.</div>
+    </div>
+  </div>
+
+  <!-- the real SDK widget shows up here once someone starts verification -->
+  <div id="occubuy-widget" style="display:none;"></div>
+
+  <div class="card" id="applicantCard">
     <form id="applicantForm">
       <div class="field">
         <label for="fullName">Full name</label>
@@ -292,105 +214,24 @@
   </div>
 </main>
 
-<!-- Simulated Occubuy SDK widget (stands in for the real sandboxed iframe) -->
-<div class="widget-overlay" id="widgetOverlay">
-  <div class="widget-frame">
-    <div class="widget-topbar">
-      <div class="widget-brand"><span class="dot"></span> Occubuy Score</div>
-      <button class="close-x" id="widgetClose" aria-label="Cancel verification">&times;</button>
-    </div>
-    <div class="widget-body">
-
-      <div class="widget-step active" id="stepIntro">
-        <h2>Verify your rental score</h2>
-        <p class="sub">
-          Occubuy securely checks your banking data to calculate your rental
-          score. JM Realestate only receives your final score, never your raw
-          bank data.
-        </p>
-        <button class="widget-btn" id="introContinueBtn">Continue to bank connection</button>
-      </div>
-
-      <div class="widget-step" id="stepBank">
-        <h2>Connect your bank</h2>
-        <p class="sub">Select the bank your income is paid into.</p>
-        <div class="bank-list">
-          <div class="bank-option" data-bank="Commonwealth Bank">
-            <div class="bank-icon" style="background:#fbbf24;">CBA</div> Commonwealth Bank
-          </div>
-          <div class="bank-option" data-bank="ANZ">
-            <div class="bank-icon" style="background:#2563eb;">ANZ</div> ANZ
-          </div>
-          <div class="bank-option" data-bank="Westpac">
-            <div class="bank-icon" style="background:#dc2626;">W</div> Westpac
-          </div>
-          <div class="bank-option" data-bank="NAB">
-            <div class="bank-icon" style="background:#111827;">NAB</div> NAB
-          </div>
-        </div>
-      </div>
-
-      <div class="widget-step" id="stepProcessing">
-        <div class="spinner-wrap">
-          <div class="spinner"></div>
-          <div>
-            <div style="font-weight:600;font-size:14px;color:#fff;">Verifying with your bank...</div>
-            <div style="font-size:12px;color:var(--occ-lavender-text);margin-top:4px;">This usually takes a few seconds.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="widget-step" id="stepSuccess">
-        <div class="success-wrap">
-          <div class="success-top">
-            <div class="success-check">&#10003;</div>
-            <div style="font-size:13px;color:var(--occ-lavender-text);">Your Occubuy Score</div>
-            <div class="score-value">822</div>
-          </div>
-          <div class="score-band">Strong</div>
-        </div>
-        <button class="widget-btn" id="successDoneBtn">Continue to JM Realestate</button>
-      </div>
-
-    </div>
-  </div>
-</div>
-
+<!-- this is the real built SDK, swapped in for the old fake mock version -->
+<script src="../dist/occubuy-sdk.iife.global.js"></script>
 <script>
-  // Mock of window.OccubuyScore.init(...) — mirrors the real SDK's public API
-  // shape so this prototype can later be swapped for dist/occubuy-sdk.iife.global.js
-  // with no changes to the calling code below.
-  const OccubuyScoreMock = {
-    init(config) {
-      if (!config || !config.apiKey) throw new Error("[OccubuyScore] init() requires an apiKey.");
-      return {
-        start() {
-          openWidget();
-        },
-      };
-    },
-  };
-
   const consentCheck = document.getElementById("consentCheck");
   const verifyBtn = document.getElementById("verifyBtn");
   const applicantForm = document.getElementById("applicantForm");
+  const applicantCard = document.getElementById("applicantCard");
   const resultBanner = document.getElementById("resultBanner");
+  const resultScoreText = document.getElementById("resultScoreText");
+  const declineBanner = document.getElementById("declineBanner");
+  const widgetContainer = document.getElementById("occubuy-widget");
 
-  // Restrict date-of-birth picker to adults (18+) only — no future or under-18 dates selectable
+  // Only lets someone pick a date of birth that makes them 18 or older, no future dates either
   const dobInput = document.getElementById("dob");
   const toISODate = (d) => d.toISOString().slice(0, 10);
   const today = new Date();
   dobInput.max = toISODate(new Date(today.getFullYear() - 18, today.getMonth(), today.getDate()));
   dobInput.min = toISODate(new Date(today.getFullYear() - 100, today.getMonth(), today.getDate()));
-
-  const widgetOverlay = document.getElementById("widgetOverlay");
-  const widgetClose = document.getElementById("widgetClose");
-  const steps = {
-    intro: document.getElementById("stepIntro"),
-    bank: document.getElementById("stepBank"),
-    processing: document.getElementById("stepProcessing"),
-    success: document.getElementById("stepSuccess"),
-  };
 
   consentCheck.addEventListener("change", () => {
     verifyBtn.disabled = !consentCheck.checked;
@@ -405,53 +246,42 @@
       return;
     }
 
-    const formData = Object.fromEntries(new FormData(applicantForm).entries());
+    applicantCard.style.display = "none";
+    widgetContainer.style.display = "block";
+    resultBanner.classList.remove("show");
+    declineBanner.classList.remove("show");
 
-    const scoreSdk = OccubuyScoreMock.init({
+    const scoreSdk = window.OccubuyScore.init({
       apiKey: "pk_sandbox_demo",
+      container: "#occubuy-widget",
       environment: "sandbox",
-      onComplete: (result) => showResult(result),
-      onCancel: () => closeWidget(),
+      onComplete: (result) => {
+        widgetContainer.style.display = "none";
+        showResult(result);
+      },
+      onCancel: () => {
+        widgetContainer.style.display = "none";
+        applicantCard.style.display = "block";
+      },
+      onDecline: () => {
+        widgetContainer.style.display = "none";
+        applicantCard.style.display = "block";
+        showDecline();
+      },
     });
-    scoreSdk._applicant = formData; // demo only — not part of the real SDK API
     scoreSdk.start();
   });
 
-  function showStep(name) {
-    Object.values(steps).forEach((el) => el.classList.remove("active"));
-    steps[name].classList.add("active");
-  }
-
-  function openWidget() {
-    showStep("intro");
-    widgetOverlay.classList.add("show");
-  }
-
-  function closeWidget() {
-    widgetOverlay.classList.remove("show");
-  }
-
-  document.getElementById("introContinueBtn").addEventListener("click", () => showStep("bank"));
-
-  document.querySelectorAll(".bank-option").forEach((opt) => {
-    opt.addEventListener("click", () => {
-      showStep("processing");
-      setTimeout(() => {
-        showStep("success");
-      }, 1800);
-    });
-  });
-
-  document.getElementById("successDoneBtn").addEventListener("click", () => {
-    closeWidget();
-    showResult({ status: "success", score: 822, band: "strong", verifiedAt: new Date().toISOString() });
-  });
-
-  widgetClose.addEventListener("click", closeWidget);
-
   function showResult(result) {
+    const bandLabel = result.band.charAt(0).toUpperCase() + result.band.slice(1);
+    resultScoreText.textContent = `Score verified, ${result.score} (${bandLabel})`;
     resultBanner.classList.add("show");
     resultBanner.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function showDecline() {
+    declineBanner.classList.add("show");
+    declineBanner.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 </script>
 

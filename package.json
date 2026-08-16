@@ -7,7 +7,9 @@
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "unpkg": "dist/occubuy-sdk.iife.global.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
@@ -19,7 +21,12 @@
     "size": "size-limit",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["occubuy", "sdk", "embeddable", "score"],
+  "keywords": [
+    "occubuy",
+    "sdk",
+    "embeddable",
+    "score"
+  ],
   "license": "UNLICENSED",
   "devDependencies": {
     "@playwright/test": "^1.47.0",
@@ -27,6 +34,7 @@
     "@typescript-eslint/eslint-plugin": "^8.8.0",
     "@typescript-eslint/parser": "^8.8.0",
     "eslint": "^9.11.0",
+    "jsdom": "^30.0.1",
     "prettier": "^3.3.3",
     "size-limit": "^11.1.0",
     "tsup": "^8.3.0",
