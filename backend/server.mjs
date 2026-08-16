@@ -118,7 +118,7 @@ const apiServer = http.createServer(async (req, res) => {
 });
 
 apiServer.listen(8787, () => {
-  console.log("✅ API server running on http://localhost:8787");
+  console.log("API server running on http://localhost:8787");
 });
 
 // SERVER 2, running on port 8788. This is the fake FastLink bank connection page.
@@ -163,5 +163,5 @@ const fastlinkServer = http.createServer(async (req, res) => {
 });
 
 fastlinkServer.listen(8788, () => {
-  console.log("✅ Fake FastLink server running on http://localhost:8788");
+  console.log("Fake FastLink server running on http://localhost:8788");
 });
