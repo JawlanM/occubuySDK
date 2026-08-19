@@ -248,10 +248,9 @@
 
   // run `npm run seed:partner` in backend/ and paste the printed key in here
   const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_jmrealestate_2efdd1520b9234bc2e00a0fd76ff2ea262721fa4165bfaef";
-  // defaults to localhost for local dev - once the backend's deployed, change this to
-  // the real cPanel URL (e.g. "https://api.occubuy.example") so this page works for
-  // anyone visiting it, not just whoever has the backend running on their own machine
-  const OCCUBUY_API_BASE = "http://localhost:8787";
+  // backend is deployed on Render, reachable from any device - see backend/README
+  // for why (cPanel's outbound connection to MongoDB Atlas is blocked, Render's isn't)
+  const OCCUBUY_API_BASE = "https://occubuy-backend.onrender.com";
 
   applicantForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -268,6 +267,7 @@
 
     const scoreSdk = window.OccubuyScore.init({
       apiKey: OCCUBUY_PARTNER_API_KEY,
+      apiBase: OCCUBUY_API_BASE,
       container: "#occubuy-widget",
       environment: "sandbox",
       applicant: {
