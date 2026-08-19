@@ -1,12 +1,11 @@
-import { Schema, model, Document } from "mongoose";
-import { auditSchema, IAudit } from "../models/audit.schema";
+import { IAudit } from "./audit.schema";
 
 interface IContact {
   name: string;
   email: string;
   phone: string;
 }
- 
+
 interface ISecondaryContact extends IContact {
   role: string;
 }
@@ -26,15 +25,18 @@ interface IMonetisation {
   paymentMethodRef?: string;
   billingFrequency?: "monthly" | "annual";
 }
- 
+
 interface ICompliance {
   termsVersionAccepted?: string;
   termsAcceptedAt?: Date;
   termsAcceptedBy?: string;
   supportingDocs?: Array<{ type: string; url: string; uploadedAt: Date }>;
 }
- 
-export interface IPartner extends Document {
+
+// plain interface, not a mongoose Document - queries go through the Data API
+// (see config/dataApi.ts), not a live driver connection
+export interface IPartner {
+  _id: string;
   partnerId: string;
   legalName: string;
   tradingName?: string;
@@ -60,97 +62,4 @@ export interface IPartner extends Document {
   audit: IAudit;
 }
 
-
-const contactSchema = new Schema<IContact>(
-  {
-    name: { type: String, required: true },
-    email: { type: String, required: true, lowercase: true },
-    phone: { type: String, required: true },
-  },
-  { _id: false }
-);
- 
-const PartnerSchema = new Schema<IPartner>({
-  partnerId: { type: String, required: true, unique: true },
-  legalName: { type: String, required: true },
-  tradingName: { type: String },
-  abn: { type: String, required: true },
-  apiKeyPrefix: { type: String, required: true, unique: true },
-  apiKeyHash: { type: String, required: true, select: false },
-  category: {
-    type: String,
-    enum: ["mortgage", "property", "insurance", "utility", "lifestyle"],
-    required: true,
-  },
-  status: {
-    type: String,
-    enum: [
-      "draft",
-      "pending_review",
-      "approved",
-      "live",
-      "paused",
-      "suspended",
-      "archived",
-    ],
-    required: true,
-    default: "draft",
-  },
-  primaryContact: { type: contactSchema, required: true },
-  secondaryContacts: {
-    type: [
-      new Schema<ISecondaryContact>(
-        {
-          name: { type: String, required: true },
-          email: { type: String, required: true, lowercase: true },
-          phone: { type: String, required: true },
-          role: { type: String, required: true },
-        },
-        { _id: false }
-      ),
-    ],
-    default: [],
-  },
-  monetisation: {
-    model: {
-      type: String,
-      enum: ["platform_fee_plus_conversion", "conversion_only", "subscription"],
-    },
-    platformFee: {
-      amount: Number,
-      currency: String,
-      frequency: { type: String, enum: ["monthly", "annual"] },
-    },
-    conversionFee: {
-      type: { type: String, enum: ["percent", "flat"] },
-      value: Number,
-      currency: String,
-    },
-    paymentMethodRef: String,
-    billingFrequency: { type: String, enum: ["monthly", "annual"] },
-  },
-  compliance: {
-    termsVersionAccepted: String,
-    termsAcceptedAt: Date,
-    termsAcceptedBy: String,
-    supportingDocs: {
-      type: [
-        {
-          type: { type: String, required: true },
-          url: { type: String, required: true },
-          uploadedAt: { type: Date, required: true },
-        },
-      ],
-      default: [],
-    },
-  },
-  onboardingStage: { type: String },
-  audit: { type: auditSchema, required: true },
-});
-
-PartnerSchema.index({ partnerId: 1 }, { unique: true });
-PartnerSchema.index({ status: 1 });
-PartnerSchema.index({ category: 1, status: 1 });
- 
-export const Partner = model<IPartner>("Partner", PartnerSchema);
- 
+export const PARTNER_COLLECTION = "partners";

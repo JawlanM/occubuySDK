@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import mongoose from "mongoose";
-import { UserScore, IUserScore } from "../models/Userscore.model";
+import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import {
   requirePartnerAuth,
   requireSessionAuth,
@@ -10,13 +9,14 @@ import {
 } from "../middleware/auth";
 import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
+import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
 
 export const scoresRouter = Router();
 
 type ScoreBand = NonNullable<IUserScore["score"]>["band"];
 
 function mockGenerateScore(): { value: number; band: ScoreBand } {
-  const value = Math.floor(Math.random() * 1001); 
+  const value = Math.floor(Math.random() * 1001);
   let band: ScoreBand;
   if (value >= 800) band = "Excellent";
   else if (value >= 600) band = "Good";
@@ -47,16 +47,21 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
   }
 
   const { token: sessionToken, hash: sessionTokenHash } = generateSessionToken();
+  const now = new Date().toISOString();
 
-  const scoreDoc = await UserScore.create({
+  const scoreId = await insertOne(USERSCORE_COLLECTION, {
     userId,
     applicant: validated.applicant,
     status: "CREATED",
     sessionTokenHash,
+    sharedAt: null,
+    declinedAt: null,
+    createdAt: now,
+    updatedAt: now,
   });
 
   return res.status(201).json({
-    scoreId: scoreDoc._id.toString(),
+    scoreId,
     sessionToken,
     fastlinkSession: {
       fastlinkUrl: `${req.protocol}://${req.get("host")}/fastlink`,
@@ -69,11 +74,11 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
 
 
 scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: Request, res: Response) => {
-  const { scoreId } = req.params;
+  const scoreId = String(req.params.scoreId ?? "");
   const { providerId, providerAccountId, requestId, providerName, status, additionalStatus } =
     req.body ?? {};
 
-  if (!mongoose.isValidObjectId(scoreId)) {
+  if (!OBJECT_ID_RE.test(scoreId)) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
@@ -84,7 +89,7 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
     });
   }
 
-  const scoreDoc = await UserScore.findById(scoreId);
+  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
@@ -96,9 +101,11 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
     });
   }
 
-  scoreDoc.linkedAccount = { providerId, providerAccountId, requestId, providerName, additionalStatus };
-  scoreDoc.status = "PROCESSING";
-  await scoreDoc.save();
+  await updateById(USERSCORE_COLLECTION, scoreId, {
+    linkedAccount: { providerId, providerAccountId, requestId, providerName, additionalStatus },
+    status: "PROCESSING",
+    updatedAt: new Date().toISOString(),
+  });
 
   return res.status(200).json({ status: "PROCESSING" });
 });
@@ -110,7 +117,7 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
 scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   const { scoreId } = req.params;
 
-  if (typeof scoreId !== "string" || !mongoose.isValidObjectId(scoreId)) {
+  if (typeof scoreId !== "string" || !OBJECT_ID_RE.test(scoreId)) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
@@ -121,7 +128,7 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(401).json({ message: "Invalid or missing credentials", code: "AUTH_REQUIRED" });
   }
 
-  const scoreDoc = await UserScore.findById(scoreId);
+  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
@@ -136,11 +143,15 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   }
 
   if (scoreDoc.status === "PROCESSING") {
-//swap this for real scoring engine
+    // swap this for real scoring engine
     const { value, band } = mockGenerateScore();
+    await updateById(USERSCORE_COLLECTION, scoreId, {
+      score: { value, band },
+      status: "COMPLETED",
+      updatedAt: new Date().toISOString(),
+    });
     scoreDoc.score = { value, band };
     scoreDoc.status = "COMPLETED";
-    await scoreDoc.save();
   }
 
   if (scoreDoc.status === "COMPLETED") {
@@ -154,9 +165,9 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
 // hits when the customer clicks "Share with Partner". this is the only place that
 // actually flips sharedAt - GET above won't hand anything to a partner until this ran
 scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Request, res: Response) => {
-  const { scoreId } = req.params;
+  const scoreId = String(req.params.scoreId ?? "");
 
-  const scoreDoc = await UserScore.findById(scoreId);
+  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
@@ -172,32 +183,35 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
     });
   }
 
-  if (!scoreDoc.sharedAt) {
-    scoreDoc.sharedAt = new Date();
-    await scoreDoc.save();
+  let sharedAt = scoreDoc.sharedAt;
+  if (!sharedAt) {
+    sharedAt = new Date().toISOString();
+    await updateById(USERSCORE_COLLECTION, scoreId, { sharedAt, updatedAt: new Date().toISOString() });
   }
 
   return res.status(200).json({
     score: scoreDoc.score.value,
     band: scoreDoc.score.band,
-    verifiedAt: scoreDoc.sharedAt.toISOString(),
-    reference: scoreDoc._id.toString(),
+    verifiedAt: new Date(sharedAt).toISOString(),
+    reference: scoreDoc._id,
   });
 });
 
 // hits when the customer clicks "Don't share". once this is set, /share above is
 // locked out for good even if something later tries to call it again
 scoresRouter.post("/scores/:scoreId/decline", requireSessionAuth, async (req: Request, res: Response) => {
-  const { scoreId } = req.params;
+  const scoreId = String(req.params.scoreId ?? "");
 
-  const scoreDoc = await UserScore.findById(scoreId);
+  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
   if (!scoreDoc.declinedAt) {
-    scoreDoc.declinedAt = new Date();
-    await scoreDoc.save();
+    await updateById(USERSCORE_COLLECTION, scoreId, {
+      declinedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   return res.status(200).json({ status: "declined" });

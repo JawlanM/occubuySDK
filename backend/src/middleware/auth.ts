@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import { Partner, IPartner } from "../models/partner.model";
-import { UserScore } from "../models/Userscore.model";
+import { IPartner, PARTNER_COLLECTION } from "../models/partner.model";
+import { USERSCORE_COLLECTION } from "../models/Userscore.model";
+import { findOne, findById } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
 
 declare global {
@@ -27,7 +28,7 @@ export async function authenticatePartnerKey(req: Request): Promise<IPartner | n
 
   const lastUnderscore = key.lastIndexOf("_");
   const prefix = lastUnderscore === -1 ? key : key.slice(0, lastUnderscore);
-  const partner = await Partner.findOne({ apiKeyPrefix: prefix }).select("+apiKeyHash");
+  const partner = await findOne<IPartner>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
 
   if (!partner || !secretMatchesHash(key, partner.apiKeyHash)) return null;
   return partner;
@@ -51,7 +52,7 @@ export async function requirePartnerAuth(req: Request, res: Response, next: Next
 // reading/sharing/declining a score that isn't theirs
 export async function verifySessionToken(scoreId: string, token: string | undefined): Promise<boolean> {
   if (!token) return false;
-  const scoreDoc = await UserScore.findById(scoreId).select("+sessionTokenHash");
+  const scoreDoc = await findById<{ sessionTokenHash: string }>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) return false;
   return secretMatchesHash(token, scoreDoc.sessionTokenHash);
 }
