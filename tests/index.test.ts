@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { init } from "../src/index";
+import { init, type OccubuyApplicant } from "../src/index";
 
 function makeContainer(): HTMLElement {
   const el = document.createElement("div");
@@ -16,6 +16,15 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
   } as Response;
 }
 
+// same shape the mock partner form collects - see demo/mockPartnerWebApp.html
+const VALID_APPLICANT: OccubuyApplicant = {
+  fullName: "Jordan Lee",
+  email: "jordan@email.com",
+  phone: "0412 345 678",
+  dob: "1998-04-12",
+  address: "12 Example St, Sydney NSW 2000",
+};
+
 afterEach(() => {
   document.body.innerHTML = "";
   document.head.innerHTML = "";
@@ -26,17 +35,22 @@ afterEach(() => {
 describe("OccubuyScore.init", () => {
   it("throws without an apiKey", () => {
     // @ts-expect-error leaving out apiKey on purpose for this test
-    expect(() => init({ container: makeContainer() })).toThrow();
+    expect(() => init({ container: makeContainer(), applicant: VALID_APPLICANT })).toThrow();
   });
 
   it("throws without a container", () => {
     // @ts-expect-error leaving out container on purpose for this test
-    expect(() => init({ apiKey: "pk_sandbox_test" })).toThrow();
+    expect(() => init({ apiKey: "pk_sandbox_test", applicant: VALID_APPLICANT })).toThrow();
+  });
+
+  it("throws without applicant details", () => {
+    // @ts-expect-error leaving out applicant on purpose for this test
+    expect(() => init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget" })).toThrow();
   });
 
   it("returns a start() function and renders the consent step into the container", () => {
     const container = makeContainer();
-    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget" });
+    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT });
     expect(typeof instance.start).toBe("function");
 
     instance.start();
@@ -54,16 +68,20 @@ describe("OccubuyScore.init", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
-        return Promise.resolve(jsonResponse({ scoreId: "score_123", fastlinkSession: "fake-session" }));
+        return Promise.resolve(
+          jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token", fastlinkSession: "fake-session" })
+        );
       }
       if (url.endsWith("/api/scores/score_123/complete")) {
         return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
       }
       if (url.endsWith("/api/scores/score_123")) {
-        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: 822 }));
+        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 822 } }));
       }
       if (url.endsWith("/api/scores/score_123/share")) {
-        return Promise.resolve(jsonResponse({ score: 822, band: "strong", verifiedAt: "2026-08-18T00:00:00.000Z" }));
+        return Promise.resolve(
+          jsonResponse({ score: 822, verifiedAt: "2026-08-18T00:00:00.000Z", reference: "score_123" })
+        );
       }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
@@ -73,6 +91,7 @@ describe("OccubuyScore.init", () => {
     const instance = init({
       apiKey: "pk_sandbox_test",
       container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
       onComplete,
       onCancel: vi.fn(),
     });
@@ -92,8 +111,12 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "FastLink", event: "SUCCESS", data: { bank: "ANZ", accountId: "acc_1" } },
-        origin: "http://localhost:8788",
+        data: {
+          type: "FastLink",
+          event: "SUCCESS",
+          data: { providerId: 16442, providerAccountId: 12345678, requestId: "req_1", providerName: "ANZ", status: "SUCCESS" },
+        },
+        origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
     );
@@ -111,7 +134,13 @@ describe("OccubuyScore.init", () => {
 
     await vi.waitFor(() => {
       expect(onComplete).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "success", score: 822, band: "strong", verifiedAt: "2026-08-18T00:00:00.000Z" })
+        expect.objectContaining({
+          status: "success",
+          score: 822,
+          band: "strong",
+          verifiedAt: "2026-08-18T00:00:00.000Z",
+          reference: "score_123",
+        })
       );
     });
 
@@ -129,23 +158,28 @@ describe("OccubuyScore.init", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
-        return Promise.resolve(jsonResponse({ scoreId: "score_789", fastlinkSession: "fake-session" }));
+        return Promise.resolve(jsonResponse({ scoreId: "score_789", sessionToken: "test-session-token" }));
       }
       if (url.endsWith("/api/scores/score_789/complete")) {
         return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
       }
       if (url.endsWith("/api/scores/score_789")) {
-        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: 500 }));
+        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 500 } }));
       }
       if (url.endsWith("/api/scores/score_789/share")) {
-        return Promise.resolve(jsonResponse({ score: 500, band: "moderate", verifiedAt: "2026-08-18T00:00:00.000Z" }));
+        return Promise.resolve(jsonResponse({ score: 500, verifiedAt: "2026-08-18T00:00:00.000Z", reference: "score_789" }));
       }
       return Promise.reject(new Error(`Unexpected fetch: ${url}`));
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const onComplete = vi.fn();
-    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", onComplete });
+    const instance = init({
+      apiKey: "pk_sandbox_test",
+      container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
+      onComplete,
+    });
     instance.start();
 
     container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;
@@ -161,8 +195,12 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "FastLink", event: "SUCCESS", data: { bank: "ANZ", accountId: "acc_3" } },
-        origin: "http://localhost:8788",
+        data: {
+          type: "FastLink",
+          event: "SUCCESS",
+          data: { providerId: 16442, providerAccountId: 22334455, requestId: "req_2", providerName: "ANZ", status: "SUCCESS" },
+        },
+        origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
     );
@@ -187,13 +225,13 @@ describe("OccubuyScore.init", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
-        return Promise.resolve(jsonResponse({ scoreId: "score_456", fastlinkSession: "fake-session" }));
+        return Promise.resolve(jsonResponse({ scoreId: "score_456", sessionToken: "test-session-token" }));
       }
       if (url.endsWith("/api/scores/score_456/complete")) {
         return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
       }
       if (url.endsWith("/api/scores/score_456")) {
-        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: 259 }));
+        return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 259 } }));
       }
       if (url.endsWith("/api/scores/score_456/decline")) {
         return Promise.resolve(jsonResponse({ status: "declined" }));
@@ -207,6 +245,7 @@ describe("OccubuyScore.init", () => {
     const instance = init({
       apiKey: "pk_sandbox_test",
       container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
       onComplete,
       onDecline,
     });
@@ -225,8 +264,12 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "FastLink", event: "SUCCESS", data: { bank: "ANZ", accountId: "acc_2" } },
-        origin: "http://localhost:8788",
+        data: {
+          type: "FastLink",
+          event: "SUCCESS",
+          data: { providerId: 16442, providerAccountId: 33445566, requestId: "req_3", providerName: "ANZ", status: "SUCCESS" },
+        },
+        origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
     );
@@ -256,19 +299,19 @@ describe("OccubuyScore.init", () => {
       const fetchMock = vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/scores")) {
-          return Promise.resolve(jsonResponse({ scoreId, fastlinkSession: "fake-session" }));
+          return Promise.resolve(jsonResponse({ scoreId, sessionToken: "test-session-token" }));
         }
         if (url.endsWith(`/api/scores/${scoreId}/complete`)) {
           return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
         }
         if (url.endsWith(`/api/scores/${scoreId}`)) {
-          return Promise.resolve(jsonResponse({ status: "COMPLETED", score }));
+          return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: score } }));
         }
         return Promise.reject(new Error(`Unexpected fetch: ${url}`));
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget" });
+      const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT });
       instance.start();
 
       container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;
@@ -284,8 +327,12 @@ describe("OccubuyScore.init", () => {
       const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "FastLink", event: "SUCCESS", data: { bank: "ANZ" } },
-          origin: "http://localhost:8788",
+          data: {
+            type: "FastLink",
+            event: "SUCCESS",
+            data: { providerId: 16442, providerAccountId: 44556677, requestId: `req_${scoreId}`, providerName: "ANZ", status: "SUCCESS" },
+          },
+          origin: "http://localhost:8787",
           source: iframe.contentWindow,
         })
       );
@@ -308,7 +355,12 @@ describe("OccubuyScore.init", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const onError = vi.fn();
-    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", onError });
+    const instance = init({
+      apiKey: "pk_sandbox_test",
+      container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
+      onError,
+    });
     instance.start();
 
     container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;
@@ -325,14 +377,38 @@ describe("OccubuyScore.init", () => {
     });
   });
 
+  it("fires onError with INVALID_APPLICANT and never calls the API when applicant details are bad", async () => {
+    const container = makeContainer();
+    const fetchMock = vi.fn(() => Promise.reject(new Error("should not be called")));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onError = vi.fn();
+    const instance = init({
+      apiKey: "pk_sandbox_test",
+      container: "#occubuy-widget",
+      applicant: { ...VALID_APPLICANT, phone: "not-a-phone-number" },
+      onError,
+    });
+    instance.start();
+
+    container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;
+    container
+      .querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!
+      .dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "INVALID_APPLICANT" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("ignores FastLink messages from an untrusted origin", async () => {
     const container = makeContainer();
     const fetchMock = vi.fn(() =>
-      Promise.resolve(jsonResponse({ scoreId: "score_123", fastlinkSession: "fake-session" }))
+      Promise.resolve(jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token" }))
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget" });
+    const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT });
     instance.start();
 
     container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;

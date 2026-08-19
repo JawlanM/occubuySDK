@@ -5,6 +5,8 @@ export interface OccubuyScoreResult {
   score: number;
   band: "strong" | "moderate" | "limited";
   verifiedAt: string;
+  /** scoreId, handed back by /share as a confirmation reference - see US D1.3 */
+  reference: string;
 }
 
 export interface OccubuyCancelResult {
@@ -16,6 +18,7 @@ export interface OccubuyDeclineResult {
 }
 
 export type OccubuyErrorCode =
+  | "INVALID_APPLICANT"
   | "START_FAILED"
   | "BANK_CONNECTION_FAILED"
   | "POLL_FAILED"
@@ -27,10 +30,26 @@ export interface OccubuyErrorResult {
   message: string;
 }
 
+/** comes from whatever form the partner already had the renter fill out - no login on our side */
+export interface OccubuyApplicant {
+  fullName: string;
+  email: string;
+  phone: string;
+  /** ISO date, e.g. "1998-04-12" - has to make them 18+ */
+  dob: string;
+  address: string;
+}
+
 export interface OccubuyInitConfig {
   apiKey: string;
   /** Where to render the widget, either a CSS selector like "#occubuy-widget" or the actual element. */
   container: string | HTMLElement;
+  applicant: OccubuyApplicant;
+  /**
+   * Where the backend actually lives - defaults to localhost:8787 for local dev. Set this
+   * to the real deployed backend URL once it's up on cPanel, e.g. "https://api.occubuy.example".
+   */
+  apiBase?: string;
   environment?: OccubuyEnvironment;
   onComplete?: (result: OccubuyScoreResult) => void;
   onCancel?: (result: OccubuyCancelResult) => void;
@@ -52,15 +71,10 @@ type ResolvedConfig = OccubuyInitConfig & {
   onError: (error: OccubuyErrorResult) => void;
 };
 
-// Everything below points at the fake sandbox backend in backend/server.mjs for now.
-// There's no real production backend yet, that's waiting on the POST /sdk/sessions
-// design doc getting reviewed first.
-const SANDBOX_API_BASE = "http://localhost:8787";
-const SANDBOX_FASTLINK_URL = "http://localhost:8788/fastlink";
-const SANDBOX_FASTLINK_ORIGIN = "http://localhost:8788";
-// TODO: swap this for a real per session token once POST /sdk/sessions actually exists.
-const SANDBOX_DEV_TOKEN = "occubuy_dev_temp_token";
-const AUTH_HEADER = `Bearer ${SANDBOX_DEV_TOKEN}`;
+// local dev default - override via config.apiBase once there's a real deployed backend.
+// one origin serves both the score API and the fake FastLink page.
+const DEFAULT_API_BASE = "http://localhost:8787";
+const SESSION_HEADER = "X-Occubuy-Session";
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
 
@@ -73,6 +87,40 @@ function scoreToBand(score: number): OccubuyScoreResult["band"] {
 
 function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+// same rules as backend/src/utils/validators.ts, just here so bad input fails fast
+// instead of waiting on a network round trip - backend still re-checks everything
+const AU_MOBILE = /^(?:\+?61|0)4\d{2}[\s-]?\d{3}[\s-]?\d{3}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateApplicant(applicant: OccubuyApplicant | undefined): string | null {
+  if (!applicant) return "Applicant details are required.";
+  if (!applicant.fullName || applicant.fullName.trim().length < 2 || applicant.fullName.trim().length > 100) {
+    return "Full name must be 2-100 characters.";
+  }
+  if (!applicant.email || !EMAIL_PATTERN.test(applicant.email.trim())) {
+    return "Enter a valid email address.";
+  }
+  if (!applicant.phone || !AU_MOBILE.test(applicant.phone.trim())) {
+    return "Enter a valid Australian mobile number, e.g. 04XX XXX XXX.";
+  }
+  if (!applicant.dob || Number.isNaN(new Date(applicant.dob).getTime())) {
+    return "Enter a valid date of birth.";
+  }
+  const dobDate = new Date(applicant.dob);
+  const now = new Date();
+  if (dobDate.getTime() > now.getTime()) return "Date of birth cannot be in the future.";
+  let age = now.getUTCFullYear() - dobDate.getUTCFullYear();
+  const hadBirthdayThisYear =
+    now.getUTCMonth() > dobDate.getUTCMonth() ||
+    (now.getUTCMonth() === dobDate.getUTCMonth() && now.getUTCDate() >= dobDate.getUTCDate());
+  if (!hadBirthdayThisYear) age -= 1;
+  if (age < 18) return "You must be 18 or older to use Occubuy Score.";
+  if (!applicant.address || applicant.address.trim().length < 5 || applicant.address.trim().length > 200) {
+    return "Address must be 5-200 characters.";
+  }
+  return null;
 }
 
 // Kept separate from the "how it's calculated" line (see successTemplate) - C1.3 asks for
@@ -92,6 +140,7 @@ function improvementCopy(band: OccubuyScoreResult["band"]): string {
 interface FastLinkMessage {
   type: "FastLink";
   event: string;
+  data?: Record<string, unknown>;
 }
 
 function isFastLinkMessage(value: unknown): value is FastLinkMessage {
@@ -222,7 +271,7 @@ function bankConnectionTemplate(): string {
           title="Bank connection"
         ></iframe>
       </div>
-      <form data-occubuy-fastlink-form action="${SANDBOX_FASTLINK_URL}" method="POST" target="occubuy-fastlink-frame" style="display:none;" aria-hidden="true"></form>
+      <form data-occubuy-fastlink-form method="POST" target="occubuy-fastlink-frame" style="display:none;" aria-hidden="true"></form>
       <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-bank-cancel>Cancel</button>
     </div>
   `;
@@ -287,6 +336,9 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
   if (!config?.container) {
     throw new Error("[OccubuyScore] init() requires a container (CSS selector or HTMLElement).");
   }
+  if (!config?.applicant) {
+    throw new Error("[OccubuyScore] init() requires applicant (fullName, email, phone, dob, address).");
+  }
 
   const resolved: ResolvedConfig = {
     environment: "sandbox",
@@ -315,6 +367,9 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       throw new Error(`[OccubuyScore] container ${label} was not found on the page.`);
     }
     const containerEl: HTMLElement = maybeContainer;
+    const apiBase = resolved.apiBase ?? DEFAULT_API_BASE;
+    const fastlinkUrl = `${apiBase}/fastlink`;
+    const fastlinkOrigin = apiBase;
 
     injectStyles();
 
@@ -322,6 +377,14 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let pollAttempts = 0;
     let messageListener: ((event: MessageEvent) => void) | undefined;
+    // handed back by POST /scores, has to ride along on every call after that for this scoreId
+    let sessionToken: string | undefined;
+
+    function authHeaders(extra?: Record<string, string>): Record<string, string> {
+      const headers: Record<string, string> = { Authorization: `Bearer ${resolved.apiKey}` };
+      if (sessionToken) headers[SESSION_HEADER] = sessionToken;
+      return { ...headers, ...extra };
+    }
 
     function cleanup(): void {
       cancelled = true;
@@ -356,20 +419,28 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
 
       submitBtn.addEventListener("click", () => {
         if (!checkbox.checked) return;
+
+        const validationError = validateApplicant(resolved.applicant);
+        if (validationError) {
+          fail("INVALID_APPLICANT", validationError);
+          return;
+        }
+
         submitBtn.disabled = true;
 
-        fetch(`${SANDBOX_API_BASE}/api/scores`, {
+        fetch(`${apiBase}/api/scores`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: AUTH_HEADER },
-          body: JSON.stringify({ userId: resolved.apiKey }),
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ userId: crypto.randomUUID(), applicant: resolved.applicant }),
         })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json() as Promise<{ scoreId?: string }>;
+            return res.json() as Promise<{ scoreId?: string; sessionToken?: string }>;
           })
           .then((data) => {
             if (cancelled) return;
-            if (!data.scoreId) throw new Error("Malformed response");
+            if (!data.scoreId || !data.sessionToken) throw new Error("Malformed response");
+            sessionToken = data.sessionToken;
             renderBankConnection(data.scoreId);
           })
           .catch(() => {
@@ -385,18 +456,19 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       const cancelBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-bank-cancel]");
       if (!iframe || !form || !cancelBtn) return;
 
+      form.action = fastlinkUrl;
       cancelBtn.addEventListener("click", cancel);
 
       messageListener = (event: MessageEvent) => {
         // Checking both origin and source here. Never trust "*" for this,
         // only accept messages that actually came from the FastLink iframe made above.
-        if (event.origin !== SANDBOX_FASTLINK_ORIGIN) return;
+        if (event.origin !== fastlinkOrigin) return;
         if (event.source !== iframe.contentWindow) return;
         if (!isFastLinkMessage(event.data)) return;
 
         if (event.data.event === "SUCCESS") {
           if (messageListener) window.removeEventListener("message", messageListener);
-          completeBankConnection(scoreId);
+          completeBankConnection(scoreId, event.data.data ?? {});
         } else if (event.data.event === "CANCEL" || event.data.event === "EXIT") {
           cancel();
         }
@@ -406,10 +478,18 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       form.submit();
     }
 
-    function completeBankConnection(scoreId: string): void {
-      fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}/complete`, {
+    function completeBankConnection(scoreId: string, providerData: Record<string, unknown>): void {
+      fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/complete`, {
         method: "POST",
-        headers: { Authorization: AUTH_HEADER },
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          providerId: providerData.providerId,
+          providerAccountId: providerData.providerAccountId,
+          requestId: providerData.requestId,
+          providerName: providerData.providerName,
+          status: "SUCCESS",
+          additionalStatus: providerData.additionalStatus,
+        }),
       })
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -434,17 +514,18 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         return;
       }
 
-      fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}`, {
-        headers: { Authorization: AUTH_HEADER },
+      fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}`, {
+        headers: authHeaders(),
       })
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json() as Promise<{ status?: string; score?: number }>;
+          return res.json() as Promise<{ status?: string; score?: { value?: number } }>;
         })
         .then((data) => {
           if (cancelled) return;
-          if (data.status === "COMPLETED" && typeof data.score === "number" && Number.isFinite(data.score)) {
-            renderSuccess(scoreId, data.score);
+          const value = data.score?.value;
+          if (data.status === "COMPLETED" && typeof value === "number" && Number.isFinite(value)) {
+            renderSuccess(scoreId, value);
           } else {
             pollTimer = setTimeout(() => poll(scoreId), 1500);
           }
@@ -481,25 +562,25 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         shareBtn.disabled = true;
         if (declineBtn) declineBtn.disabled = true;
 
-        // NOTE: POST .../share doesn't exist on the sandbox fake backend yet (backend/server.mjs
-        // is intentionally left untouched here) - this is the target contract for the real,
-        // DB-backed backend. Until that lands server-side, this call 404s in the local demo.
-        // It's the only response onComplete is ever built from.
-        fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}/share`, {
+        // onComplete only ever fires off this response, never off the roundedScore closed
+        // over above - see the comment on renderSuccess. band from the backend uses its own
+        // internal 5-value scale (Excellent/Good/...), not ours, so we keep our own band here.
+        fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/share`, {
           method: "POST",
-          headers: { Authorization: AUTH_HEADER },
+          headers: authHeaders(),
         })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json() as Promise<{ score?: number; band?: OccubuyScoreResult["band"]; verifiedAt?: string }>;
+            return res.json() as Promise<{ score?: number; verifiedAt?: string; reference?: string }>;
           })
           .then((shared) => {
             cleanup();
             resolved.onComplete({
               status: "success",
               score: typeof shared.score === "number" ? Math.round(shared.score) : roundedScore,
-              band: shared.band ?? band,
+              band,
               verifiedAt: shared.verifiedAt ?? verifiedAt,
+              reference: shared.reference ?? scoreId,
             });
           })
           .catch(() => {
@@ -520,9 +601,9 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         // this call fails - so the local decline always proceeds. The POST is what lets the
         // backend actually reject any later read of this score; if it fails, that's logged
         // server-side, not surfaced here as a blocker to the customer's choice.
-        fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}/decline`, {
+        fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/decline`, {
           method: "POST",
-          headers: { Authorization: AUTH_HEADER },
+          headers: authHeaders(),
         })
           .catch(() => {
             /* best-effort - decline still proceeds locally, see comment above */
