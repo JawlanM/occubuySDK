@@ -21,3 +21,40 @@ export interface IUserScore extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const UserScoreSchema = new Schema<IUserScore>(
+  {
+    userId: { type: String, required: true, index: true },
+
+    status: {
+      type: String,
+      enum: ["CREATED", "PROCESSING", "COMPLETED", "FAILED"],
+      required: true,
+      default: "CREATED",
+    },
+    
+//Fastlinnk success payload
+// Filled in when POST /scores/{id}/complete is called
+
+linkedAccount: {
+      providerId: Number,
+      providerAccountId: Number,
+      requestId: String,
+      providerName: String,
+      additionalStatus: String,
+    },
+
+//fill when mock score engine returns
+
+score: {
+      value: { type: Number, min: 0, max: 1000 },
+      band: {
+        type: String,
+        enum: ["Excellent", "Good", "Fair", "Poor", "Insufficient Data"],
+      },
+    },
+  },
+  { timestamps: true }
+);
+
+export const UserScore = model<IUserScore>("UserScore", UserScoreSchema);
