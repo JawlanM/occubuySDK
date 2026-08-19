@@ -1,0 +1,18 @@
+{
+  "name": "db-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny HTTPS proxy in front of MongoDB Atlas, deployed on Render. Exists because the cPanel host running the real backend blocks outbound MongoDB driver connections (port 27017, and even 443 to *.mongodb.net) but plain HTTPS to arbitrary hosts works fine. The backend calls this instead of MongoDB directly, using the same findOne/insertOne/updateOne action shape Atlas's old Data API used.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.5.0"
+  }
+}
