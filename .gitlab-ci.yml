@@ -32,3 +32,11 @@ build:
     paths:
       - dist/
     expire_in: 7 days
+
+backend:
+  stage: verify
+  script:
+    - cd backend
+    - npm ci
+    - npm run typecheck
+    - npm run build
