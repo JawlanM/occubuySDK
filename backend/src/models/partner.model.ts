@@ -39,6 +39,10 @@ export interface IPartner extends Document {
   legalName: string;
   tradingName?: string;
   abn: string;
+  // e.g. "pk_sandbox_jmrealestate" - fine to have this sitting in the partner's page source
+  apiKeyPrefix: string;
+  // we only ever store the hash, never the real key
+  apiKeyHash: string;
   category: "mortgage" | "property" | "insurance" | "utility" | "lifestyle";
   status:
     | "draft"
@@ -71,6 +75,8 @@ const PartnerSchema = new Schema<IPartner>({
   legalName: { type: String, required: true },
   tradingName: { type: String },
   abn: { type: String, required: true },
+  apiKeyPrefix: { type: String, required: true, unique: true },
+  apiKeyHash: { type: String, required: true, select: false },
   category: {
     type: String,
     enum: ["mortgage", "property", "insurance", "utility", "lifestyle"],
