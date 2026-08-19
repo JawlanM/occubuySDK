@@ -15,6 +15,18 @@ export interface OccubuyDeclineResult {
   status: "declined";
 }
 
+export type OccubuyErrorCode =
+  | "START_FAILED"
+  | "BANK_CONNECTION_FAILED"
+  | "POLL_FAILED"
+  | "POLL_TIMEOUT"
+  | "SHARE_FAILED";
+
+export interface OccubuyErrorResult {
+  code: OccubuyErrorCode;
+  message: string;
+}
+
 export interface OccubuyInitConfig {
   apiKey: string;
   /** Where to render the widget, either a CSS selector like "#occubuy-widget" or the actual element. */
@@ -24,6 +36,8 @@ export interface OccubuyInitConfig {
   onCancel?: (result: OccubuyCancelResult) => void;
   /** Fires if the customer sees their score but decides not to share it with the partner. */
   onDecline?: (result: OccubuyDeclineResult) => void;
+  /** Fires whenever the widget hits an unrecoverable error, alongside showing its own error screen. */
+  onError?: (error: OccubuyErrorResult) => void;
 }
 
 export interface OccubuyScoreInstance {
@@ -35,6 +49,7 @@ type ResolvedConfig = OccubuyInitConfig & {
   onComplete: (result: OccubuyScoreResult) => void;
   onCancel: (result: OccubuyCancelResult) => void;
   onDecline: (result: OccubuyDeclineResult) => void;
+  onError: (error: OccubuyErrorResult) => void;
 };
 
 // Everything below points at the fake sandbox backend in backend/server.mjs for now.
@@ -58,6 +73,20 @@ function scoreToBand(score: number): OccubuyScoreResult["band"] {
 
 function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+// Kept separate from the "how it's calculated" line (see successTemplate) - C1.3 asks for
+// these as two distinct things, and "how to improve" specifically needs to not be one generic
+// sentence regardless of where the customer actually landed.
+function improvementCopy(band: OccubuyScoreResult["band"]): string {
+  switch (band) {
+    case "limited":
+      return "Build a longer history of on-time payments and steady income landing in this account - even a few more months of consistent activity moves this the most.";
+    case "moderate":
+      return "Keep income arriving on a predictable schedule and pay down existing debt where you can - consistency over the next few months is what pushes this into Strong.";
+    case "strong":
+      return "This is already a strong score - keep income steady and avoid large new debts to hold it here.";
+  }
 }
 
 interface FastLinkMessage {
@@ -126,6 +155,9 @@ const WIDGET_CSS = `
 .occubuy-score-label { font-size: 12.5px; color: #8a8272; margin-bottom: 2px; }
 .occubuy-score-value { font-size: 40px; font-weight: 800; color: #35205e; margin: 4px 0 10px; }
 .occubuy-score-band { display: inline-block; font-size: 12px; font-weight: 600; color: #35205e; background: #f1ecfa; padding: 4px 14px; border-radius: 999px; }
+.occubuy-improve { background: #f1ecfa; border-radius: 10px; padding: 12px 14px; margin-bottom: 20px; }
+.occubuy-improve-label { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: #4a2c85; margin-bottom: 4px; }
+.occubuy-improve-text { font-size: 13px; color: #4a2c85; line-height: 1.55; margin: 0; }
 .occubuy-error { background: #fdf2f0; border: 1px solid #f3c6b8; color: #9a3b1f; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
 `;
 
@@ -219,7 +251,11 @@ function successTemplate(): string {
         <div class="occubuy-score-value" data-occubuy-score-value></div>
         <div class="occubuy-score-band" data-occubuy-score-band></div>
       </div>
-      <p class="occubuy-sub occubuy-score-explainer">Calculated from your real income and spending patterns, not a credit check. Paying down debt and keeping a consistent income history improves it over time. This score is only visible to you until you choose to share it.</p>
+      <p class="occubuy-sub occubuy-score-explainer">Calculated from your real income and spending patterns, not a credit check. This score is only visible to you until you choose to share it.</p>
+      <div class="occubuy-improve">
+        <div class="occubuy-improve-label">How to improve it</div>
+        <p class="occubuy-improve-text" data-occubuy-improve-text></p>
+      </div>
       <button type="button" class="occubuy-btn" data-occubuy-share>Share with Partner</button>
       <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-decline>Don't share</button>
     </div>
@@ -257,6 +293,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     onComplete: () => {},
     onCancel: () => {},
     onDecline: () => {},
+    onError: () => {},
     ...config,
   };
 
@@ -297,13 +334,14 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       resolved.onCancel({ status: "cancelled" });
     }
 
-    function fail(message: string): void {
+    function fail(code: OccubuyErrorCode, message: string): void {
       cleanup();
       containerEl.innerHTML = errorTemplate();
       const messageEl = containerEl.querySelector("[data-occubuy-error-message]");
       const dismissBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-error-dismiss]");
       if (messageEl) messageEl.textContent = message;
       dismissBtn?.addEventListener("click", cancel);
+      resolved.onError({ code, message });
     }
 
     function renderConsent(): void {
@@ -335,7 +373,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             renderBankConnection(data.scoreId);
           })
           .catch(() => {
-            if (!cancelled) fail("We couldn't start your verification. Please try again.");
+            if (!cancelled) fail("START_FAILED", "We couldn't start your verification. Please try again.");
           });
       });
     }
@@ -379,7 +417,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           renderScorePolling(scoreId);
         })
         .catch(() => {
-          if (!cancelled) fail("We couldn't confirm your bank connection. Please try again.");
+          if (!cancelled) fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.");
         });
     }
 
@@ -392,7 +430,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       if (cancelled) return;
       pollAttempts += 1;
       if (pollAttempts > MAX_POLL_ATTEMPTS) {
-        fail("Verification is taking longer than expected. Please try again.");
+        fail("POLL_TIMEOUT", "Verification is taking longer than expected. Please try again.");
         return;
       }
 
@@ -406,38 +444,93 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         .then((data) => {
           if (cancelled) return;
           if (data.status === "COMPLETED" && typeof data.score === "number" && Number.isFinite(data.score)) {
-            renderSuccess(data.score);
+            renderSuccess(scoreId, data.score);
           } else {
             pollTimer = setTimeout(() => poll(scoreId), 1500);
           }
         })
         .catch(() => {
-          if (!cancelled) fail("We couldn't check your verification status. Please try again.");
+          if (!cancelled) fail("POLL_FAILED", "We couldn't check your verification status. Please try again.");
         });
     }
 
-    function renderSuccess(score: number): void {
+    // score/band shown here are the customer's own preview, straight off the poll response -
+    // that part is unavoidable, they have to see it to decide. What must NOT happen is this
+    // preview data becoming what gets handed to the partner: onComplete only ever fires with
+    // whatever POST .../share responds with, never with the roundedScore closed over here.
+    function renderSuccess(scoreId: string, score: number): void {
       const roundedScore = Math.round(score);
       const band = scoreToBand(roundedScore);
       const verifiedAt = new Date().toISOString();
+      let settled = false;
 
       containerEl.innerHTML = successTemplate();
       const scoreValueEl = containerEl.querySelector("[data-occubuy-score-value]");
       const scoreBandEl = containerEl.querySelector("[data-occubuy-score-band]");
+      const improveTextEl = containerEl.querySelector("[data-occubuy-improve-text]");
       const shareBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-share]");
       const declineBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-decline]");
 
       if (scoreValueEl) scoreValueEl.textContent = String(roundedScore);
       if (scoreBandEl) scoreBandEl.textContent = capitalize(band);
+      if (improveTextEl) improveTextEl.textContent = improvementCopy(band);
 
       shareBtn?.addEventListener("click", () => {
-        cleanup();
-        resolved.onComplete({ status: "success", score: roundedScore, band, verifiedAt });
+        if (settled) return;
+        settled = true;
+        shareBtn.disabled = true;
+        if (declineBtn) declineBtn.disabled = true;
+
+        // NOTE: POST .../share doesn't exist on the sandbox fake backend yet (backend/server.mjs
+        // is intentionally left untouched here) - this is the target contract for the real,
+        // DB-backed backend. Until that lands server-side, this call 404s in the local demo.
+        // It's the only response onComplete is ever built from.
+        fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}/share`, {
+          method: "POST",
+          headers: { Authorization: AUTH_HEADER },
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json() as Promise<{ score?: number; band?: OccubuyScoreResult["band"]; verifiedAt?: string }>;
+          })
+          .then((shared) => {
+            cleanup();
+            resolved.onComplete({
+              status: "success",
+              score: typeof shared.score === "number" ? Math.round(shared.score) : roundedScore,
+              band: shared.band ?? band,
+              verifiedAt: shared.verifiedAt ?? verifiedAt,
+            });
+          })
+          .catch(() => {
+            settled = false;
+            shareBtn.disabled = false;
+            if (declineBtn) declineBtn.disabled = false;
+            fail("SHARE_FAILED", "We couldn't share your score with the partner. Please try again.");
+          });
       });
 
       declineBtn?.addEventListener("click", () => {
-        cleanup();
-        resolved.onDecline({ status: "declined" });
+        if (settled) return;
+        settled = true;
+        declineBtn.disabled = true;
+        if (shareBtn) shareBtn.disabled = true;
+
+        // A decline must never turn into an error state for the customer (see C1.5) even if
+        // this call fails - so the local decline always proceeds. The POST is what lets the
+        // backend actually reject any later read of this score; if it fails, that's logged
+        // server-side, not surfaced here as a blocker to the customer's choice.
+        fetch(`${SANDBOX_API_BASE}/api/scores/${encodeURIComponent(scoreId)}/decline`, {
+          method: "POST",
+          headers: { Authorization: AUTH_HEADER },
+        })
+          .catch(() => {
+            /* best-effort - decline still proceeds locally, see comment above */
+          })
+          .then(() => {
+            cleanup();
+            resolved.onDecline({ status: "declined" });
+          });
       });
     }
 
