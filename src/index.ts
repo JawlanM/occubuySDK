@@ -71,8 +71,8 @@ type ResolvedConfig = OccubuyInitConfig & {
   onError: (error: OccubuyErrorResult) => void;
 };
 
-// local dev default - override via config.apiBase once there's a real deployed backend.
-// one origin serves both the score API and the fake FastLink page.
+// Local dev default; override via config.apiBase for a real backend. One origin serves
+// both the score API and the fake FastLink page.
 const DEFAULT_API_BASE = "http://localhost:8787";
 const SESSION_HEADER = "X-Occubuy-Session";
 
@@ -89,8 +89,8 @@ function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
-// same rules as backend/src/utils/validators.ts, just here so bad input fails fast
-// instead of waiting on a network round trip - backend still re-checks everything
+// Mirrors backend/src/utils/validators.ts so bad input fails fast client-side; backend
+// still re-checks everything.
 const AU_MOBILE = /^(?:\+?61|0)4\d{2}[\s-]?\d{3}[\s-]?\d{3}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -123,9 +123,8 @@ function validateApplicant(applicant: OccubuyApplicant | undefined): string | nu
   return null;
 }
 
-// Kept separate from the "how it's calculated" line (see successTemplate) - C1.3 asks for
-// these as two distinct things, and "how to improve" specifically needs to not be one generic
-// sentence regardless of where the customer actually landed.
+// Separate from the "how it's calculated" copy in successTemplate - improvement advice
+// must vary by band, not be one generic sentence.
 function improvementCopy(band: OccubuyScoreResult["band"]): string {
   switch (band) {
     case "limited":
@@ -149,9 +148,8 @@ function isFastLinkMessage(value: unknown): value is FastLinkMessage {
   return record.type === "FastLink" && typeof record.event === "string";
 }
 
-// Styling for the widget. Gets added to the page once and doesn't need
-// any CSS from the partner at all. Every class starts with "occubuy-"
-// so it never clashes with whatever's already on their site.
+// Widget styles, injected once. Every class is "occubuy-"-prefixed to avoid clashing
+// with the partner's own page styles.
 const STYLE_ID = "occubuy-style";
 const FONT_LINK_ID = "occubuy-font-link";
 
@@ -170,6 +168,14 @@ const WIDGET_CSS = `
 .occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: #f4855c; flex-shrink: 0; }
 .occubuy-heading { font-weight: 700; font-size: 20px; color: #35205e; margin: 0 0 8px; line-height: 1.3; }
 .occubuy-sub { font-weight: 400; font-size: 13.5px; color: #8a8272; margin: 0 0 20px; line-height: 1.55; }
+.occubuy-steps { display: flex; gap: 6px; margin-bottom: 18px; }
+.occubuy-step-dot { width: 6px; height: 6px; border-radius: 3px; background: #e7e0d0; transition: width 0.2s ease, background 0.2s ease; }
+.occubuy-step-dot-active { width: 20px; background: #f4855c; }
+.occubuy-panel[hidden] { display: none; }
+@keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.occubuy-fade-in { animation: occubuy-fade-in 0.25s ease; }
+.occubuy-access-list { margin: 0 0 20px; padding: 0 0 0 18px; font-size: 13px; color: #4a2c85; line-height: 1.6; }
+.occubuy-access-list li { margin-bottom: 6px; }
 .occubuy-consent {
   display: flex; gap: 10px; align-items: flex-start;
   background: #fff; border: 1px solid #e7e0d0; border-radius: 10px;
@@ -234,9 +240,8 @@ function injectStyles(): void {
   }
 }
 
-// These are just plain HTML strings, nothing dynamic ever gets stuffed
-// into them directly. Anything coming from the network or from postMessage
-// gets written in afterwards with textContent instead, never glued into the string.
+// Static HTML strings only - dynamic values (network/postMessage data) are set via
+// textContent afterward, never interpolated.
 function brandHeader(): string {
   return `<div class="occubuy-brand"><span class="occubuy-dot"></span> Occubuy Score</div>`;
 }
@@ -245,13 +250,43 @@ function consentTemplate(): string {
   return `
     <div class="occubuy-container" data-occubuy-step="consent">
       ${brandHeader()}
-      <h2 class="occubuy-heading">Verify your rental score</h2>
-      <p class="occubuy-sub">A strong Occubuy Score can help back up your application. We connect to your bank to calculate it from your real transaction history, never a credit check, and it takes about a minute. You'll see your score first, and decide yourself whether to share it.</p>
-      <div class="occubuy-consent">
-        <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
-        <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
+      <div class="occubuy-steps">
+        <span class="occubuy-step-dot occubuy-step-dot-active" data-occubuy-step-dot="1"></span>
+        <span class="occubuy-step-dot" data-occubuy-step-dot="2"></span>
+        <span class="occubuy-step-dot" data-occubuy-step-dot="3"></span>
       </div>
-      <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>Start Verification</button>
+
+      <div class="occubuy-panel occubuy-fade-in" data-occubuy-panel="1">
+        <h2 class="occubuy-heading">Verify your rental score</h2>
+        <p class="occubuy-sub">A strong Occubuy Score can help back up your application. We connect to your bank to calculate it from your real transaction history, never a credit check, and it takes about a minute.</p>
+        <button type="button" class="occubuy-btn" data-occubuy-panel-next="2">Continue</button>
+      </div>
+
+      <div class="occubuy-panel" data-occubuy-panel="2" hidden>
+        <h2 class="occubuy-heading">What we'll access</h2>
+        <ul class="occubuy-access-list">
+          <li>Your bank transaction history, via a secure Open Banking connection</li>
+          <li>We never see your online banking login or password</li>
+          <li>Read-only - nothing in your account can be moved or changed</li>
+        </ul>
+        <button type="button" class="occubuy-btn" data-occubuy-panel-next="3">Continue</button>
+        <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-panel-back="1">Back</button>
+      </div>
+
+      <div class="occubuy-panel" data-occubuy-panel="3" hidden>
+        <h2 class="occubuy-heading">Your privacy, protected</h2>
+        <ul class="occubuy-access-list">
+          <li>Bank details are verified through Yodlee, a regulated Open Banking provider - Occubuy never stores your login</li>
+          <li>Your score stays private. The partner only sees it if you choose to share it, on the next screen</li>
+          <li>You can stop at any point before that - nothing is shared automatically</li>
+        </ul>
+        <div class="occubuy-consent">
+          <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
+          <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
+        </div>
+        <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>Start Verification</button>
+        <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-panel-back="2">Back</button>
+      </div>
     </div>
   `;
 }
@@ -407,8 +442,31 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       resolved.onError({ code, message });
     }
 
+    function showConsentPanel(step: number): void {
+      containerEl.querySelectorAll<HTMLElement>("[data-occubuy-panel]").forEach((panel) => {
+        const isTarget = panel.dataset.occubuyPanel === String(step);
+        panel.hidden = !isTarget;
+        if (isTarget) {
+          panel.classList.remove("occubuy-fade-in");
+          void panel.offsetWidth;
+          panel.classList.add("occubuy-fade-in");
+        }
+      });
+      containerEl.querySelectorAll<HTMLElement>("[data-occubuy-step-dot]").forEach((dot) => {
+        dot.classList.toggle("occubuy-step-dot-active", dot.dataset.occubuyStepDot === String(step));
+      });
+    }
+
     function renderConsent(): void {
       containerEl.innerHTML = consentTemplate();
+
+      containerEl.querySelectorAll<HTMLButtonElement>("[data-occubuy-panel-next]").forEach((btn) => {
+        btn.addEventListener("click", () => showConsentPanel(Number(btn.dataset.occubuyPanelNext)));
+      });
+      containerEl.querySelectorAll<HTMLButtonElement>("[data-occubuy-panel-back]").forEach((btn) => {
+        btn.addEventListener("click", () => showConsentPanel(Number(btn.dataset.occubuyPanelBack)));
+      });
+
       const checkbox = containerEl.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]");
       const submitBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]");
       if (!checkbox || !submitBtn) return;
@@ -460,8 +518,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       cancelBtn.addEventListener("click", cancel);
 
       messageListener = (event: MessageEvent) => {
-        // Checking both origin and source here. Never trust "*" for this,
-        // only accept messages that actually came from the FastLink iframe made above.
+        // Validates both origin and source - never trust postMessage without confirming
+        // the sender is this exact iframe.
         if (event.origin !== fastlinkOrigin) return;
         if (event.source !== iframe.contentWindow) return;
         if (!isFastLinkMessage(event.data)) return;
@@ -535,10 +593,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         });
     }
 
-    // score/band shown here are the customer's own preview, straight off the poll response -
-    // that part is unavoidable, they have to see it to decide. What must NOT happen is this
-    // preview data becoming what gets handed to the partner: onComplete only ever fires with
-    // whatever POST .../share responds with, never with the roundedScore closed over here.
+    // score/band here is the customer's own preview from polling - onComplete must only
+    // ever fire with POST .../share's response, never this closed-over roundedScore.
     function renderSuccess(scoreId: string, score: number): void {
       const roundedScore = Math.round(score);
       const band = scoreToBand(roundedScore);
@@ -562,9 +618,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         shareBtn.disabled = true;
         if (declineBtn) declineBtn.disabled = true;
 
-        // onComplete only ever fires off this response, never off the roundedScore closed
-        // over above - see the comment on renderSuccess. band from the backend uses its own
-        // internal 5-value scale (Excellent/Good/...), not ours, so we keep our own band here.
+        // Fires off this response, not the closed-over roundedScore (see renderSuccess).
+        // Backend's band uses a different 5-value scale, so we keep our own.
         fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/share`, {
           method: "POST",
           headers: authHeaders(),
@@ -597,10 +652,9 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         declineBtn.disabled = true;
         if (shareBtn) shareBtn.disabled = true;
 
-        // A decline must never turn into an error state for the customer (see C1.5) even if
-        // this call fails - so the local decline always proceeds. The POST is what lets the
-        // backend actually reject any later read of this score; if it fails, that's logged
-        // server-side, not surfaced here as a blocker to the customer's choice.
+        // Decline must never surface as an error to the customer (C1.5), so it always
+        // proceeds locally even if this POST fails - failure is logged server-side, not
+        // blocking here.
         fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/decline`, {
           method: "POST",
           headers: authHeaders(),
