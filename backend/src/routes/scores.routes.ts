@@ -51,6 +51,7 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
 
   const scoreId = await insertOne(USERSCORE_COLLECTION, {
     userId,
+    partnerId: req.partner!._id,
     applicant: validated.applicant,
     status: "CREATED",
     sessionTokenHash,
@@ -136,6 +137,11 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   // partner key alone isn't enough, has to actually be shared first
   if (partner && !scoreDoc.sharedAt) {
     return res.status(403).json({ message: "This score has not been shared by the customer", code: "NOT_SHARED" });
+  }
+
+  // 404, not 403: don't confirm the score exists for a different partner.
+  if (partner && scoreDoc.partnerId !== partner._id) {
+    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
   if (scoreDoc.status === "CREATED") {

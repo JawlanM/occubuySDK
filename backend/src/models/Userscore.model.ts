@@ -26,6 +26,8 @@ export interface IApplicant {
 export interface IUserScore {
   _id: string;
   userId: string;
+  // IPartner._id. Scopes partner-key GET access to this score.
+  partnerId: string;
   applicant: IApplicant;
   status: "CREATED" | "PROCESSING" | "COMPLETED" | "FAILED";
   linkedAccount?: ILinkedAccount;

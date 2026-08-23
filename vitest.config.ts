@@ -7,6 +7,7 @@ export default defineConfig({
       "**/node_modules/**",
       "**/dist/**",
       "occubuy-score-sdk-claude-yodlee-fastlink-sdk-aarn1e/**",
+      "backend/**",
     ],
   },
 });
