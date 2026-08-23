@@ -3,6 +3,7 @@ import { IPartner, PARTNER_COLLECTION } from "../models/partner.model";
 import { USERSCORE_COLLECTION } from "../models/Userscore.model";
 import { findOne, findById } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
+import { logEvent } from "../utils/auditLog";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -40,6 +41,7 @@ export async function authenticatePartnerKey(req: Request): Promise<IPartner | n
 export async function requirePartnerAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const partner = await authenticatePartnerKey(req);
   if (!partner) {
+    logEvent("auth.partner_key_invalid", { detail: { route: req.path } });
     res.status(401).json({ message: "Missing or invalid partner API key", code: "PARTNER_KEY_INVALID" });
     return;
   }
@@ -67,6 +69,7 @@ export function requireSessionAuth(req: Request, res: Response, next: NextFuncti
   verifySessionToken(scoreId, sessionHeader(req))
     .then((ok) => {
       if (!ok) {
+        logEvent("auth.session_invalid", { scoreId, detail: { route: req.path } });
         res.status(401).json({ message: "Invalid or missing session token", code: "SESSION_INVALID" });
         return;
       }

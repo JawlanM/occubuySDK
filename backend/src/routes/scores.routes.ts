@@ -10,6 +10,7 @@ import {
 import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
+import { logEvent } from "../utils/auditLog";
 
 export const scoresRouter = Router();
 
@@ -61,6 +62,8 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
     updatedAt: now,
   });
 
+  logEvent("score.created", { partnerId: req.partner!._id, scoreId });
+
   return res.status(201).json({
     scoreId,
     sessionToken,
@@ -108,6 +111,8 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
     updatedAt: new Date().toISOString(),
   });
 
+  logEvent("score.bank_connected", { partnerId: scoreDoc.partnerId, scoreId, detail: { providerName } });
+
   return res.status(200).json({ status: "PROCESSING" });
 });
 
@@ -126,6 +131,7 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   const partner = hasValidSession ? null : await authenticatePartnerKey(req);
 
   if (!hasValidSession && !partner) {
+    logEvent("auth.partner_key_invalid", { scoreId, detail: { route: "GET /scores/:scoreId" } });
     return res.status(401).json({ message: "Invalid or missing credentials", code: "AUTH_REQUIRED" });
   }
 
@@ -158,6 +164,7 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     });
     scoreDoc.score = { value, band };
     scoreDoc.status = "COMPLETED";
+    logEvent("score.completed", { partnerId: scoreDoc.partnerId, scoreId, detail: { band } });
   }
 
   if (scoreDoc.status === "COMPLETED") {
@@ -193,6 +200,7 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
   if (!sharedAt) {
     sharedAt = new Date().toISOString();
     await updateById(USERSCORE_COLLECTION, scoreId, { sharedAt, updatedAt: new Date().toISOString() });
+    logEvent("score.shared", { partnerId: scoreDoc.partnerId, scoreId });
   }
 
   return res.status(200).json({
@@ -218,6 +226,7 @@ scoresRouter.post("/scores/:scoreId/decline", requireSessionAuth, async (req: Re
       declinedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
+    logEvent("score.declined", { partnerId: scoreDoc.partnerId, scoreId });
   }
 
   return res.status(200).json({ status: "declined" });

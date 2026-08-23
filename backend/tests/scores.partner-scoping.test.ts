@@ -68,7 +68,8 @@ const sharedScore: IUserScore = {
 };
 
 beforeEach(() => {
-  vi.mocked(dataApi.insertOne).mockResolvedValue("score-id-placeholder");
+  // Routes call insertOne for audit logging too; give it a resolved default.
+  vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
   vi.mocked(dataApi.updateById).mockResolvedValue(undefined);
 
   vi.mocked(dataApi.findOne).mockImplementation(async (collection: string, filter: any) => {
