@@ -1,13 +1,11 @@
 import dotenv from "dotenv";
 
-// loads variables from .env into process.env - this is now the first module in the
-// require chain that needs env vars, so this is where that happens (used to live in
-// config/db.ts before the mongoose driver got replaced with the Data API)
+// Loads .env into process.env. First module in the require chain that needs env vars.
 dotenv.config();
 
-// the native mongodb+srv:// driver (port 27017) is blocked outbound on this host, but
-// plain HTTPS to Atlas's Data API isn't - see README for the full story. everything here
-// talks to that Data API instead of holding a live driver connection.
+// mongodb+srv:// (port 27017) is blocked outbound on this host; plain HTTPS to Atlas's
+// Data API isn't. See README. Everything here goes through the Data API, not a live
+// driver connection.
 const BASE_URL = process.env.MONGODB_DATA_API_URL;
 const API_KEY = process.env.MONGODB_DATA_API_KEY;
 const DATA_SOURCE = process.env.MONGODB_DATA_SOURCE ?? "mongodb-atlas";
@@ -46,8 +44,8 @@ async function callDataApi<T>(action: string, body: Record<string, unknown>): Pr
   return (await res.json()) as T;
 }
 
-// pulls the hex string out whether Data API sent it back as a plain string or as
-// extended JSON ({ $oid: "..." }) - depends on the Accept header/app config, so handle both
+// Data API returns _id as either a plain string or extended JSON ({ $oid }) depending
+// on config - normalize both.
 function oidToString(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (value && typeof value === "object" && "$oid" in (value as Record<string, unknown>)) {
@@ -56,8 +54,7 @@ function oidToString(value: unknown): string | undefined {
   return undefined;
 }
 
-// wraps a hex id for a filter - Data API needs { $oid } to match by ObjectId instead
-// of doing a string comparison against the field
+// Data API needs { $oid } to match by ObjectId, not a plain string comparison.
 function oidFilter(id: string): { $oid: string } {
   return { $oid: id };
 }

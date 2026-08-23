@@ -1,7 +1,7 @@
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
 
-// never store the raw key/token, only this hash. pepper is a secret that only lives
-// on the server, so even if someone gets the mongo dump they can't just brute force it
+// Never store the raw key/token, only the hash. The pepper is server-only, so a Mongo
+// dump alone can't be brute-forced.
 function pepper(): string {
   return process.env.OCCUBUY_HASH_PEPPER ?? "dev-only-pepper-change-me";
 }

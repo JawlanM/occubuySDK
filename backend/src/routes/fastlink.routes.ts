@@ -1,8 +1,7 @@
 import { Router, Request, Response } from "express";
 import { randomUUID, randomInt } from "crypto";
 
-// same fake bank picker that used to live in server.mjs, just moved here so there's one
-// server instead of two. still not real FastLink, we're keeping it fake for now
+// Fake bank-connection picker, not real Yodlee FastLink.
 export const fastlinkRouter = Router();
 
 fastlinkRouter.post("/fastlink", (_req: Request, res: Response) => {

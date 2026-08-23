@@ -32,7 +32,7 @@ export interface IPartnerOffering extends Document {
 const PartnerOfferingSchema = new Schema<IPartnerOffering>({
   offeringId: { type: String, required: true, unique: true },
 
-  //pointer to a document in the `Partner` collection, not a copy of its data.
+  // Reference to a Partner document, not a copy of its data.
   partnerId: { type: Schema.Types.ObjectId, ref: "Partner", required: true },
 
   title: { type: String, required: true },
@@ -67,8 +67,7 @@ const PartnerOfferingSchema = new Schema<IPartnerOffering>({
     default: "draft",
   },
 
-  // Increments on each material edit 
-  //  Logic doesnt exist yet, just lies in controller
+  // Increments on each material edit. Not yet implemented - lives in the controller.
   version: { type: Number, required: true, default: 1 },
 
   audit: { type: auditSchema, required: true },

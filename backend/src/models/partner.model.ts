@@ -33,17 +33,16 @@ interface ICompliance {
   supportingDocs?: Array<{ type: string; url: string; uploadedAt: Date }>;
 }
 
-// plain interface, not a mongoose Document - queries go through the Data API
-// (see config/dataApi.ts), not a live driver connection
+// Plain interface, not a Mongoose Document - queries go through the Data API (config/dataApi.ts).
 export interface IPartner {
   _id: string;
   partnerId: string;
   legalName: string;
   tradingName?: string;
   abn: string;
-  // e.g. "pk_sandbox_jmrealestate" - fine to have this sitting in the partner's page source
+  // e.g. "pk_sandbox_jmrealestate"; safe to expose in partner page source.
   apiKeyPrefix: string;
-  // we only ever store the hash, never the real key
+  // Only the hash is ever stored, never the real key.
   apiKeyHash: string;
   category: "mortgage" | "property" | "insurance" | "utility" | "lifestyle";
   status:

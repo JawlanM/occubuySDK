@@ -1,5 +1,5 @@
-// same rules as the SDK and the mock form check on their end, but those are just UX,
-// this is the one that actually blocks bad data since someone could hit the API directly
+// Same rules as the SDK/demo form, but this is the one that actually blocks bad data -
+// those are UX only.
 
 const AU_MOBILE = /^(?:\+?61|0)4\d{2}[\s-]?\d{3}[\s-]?\d{3}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -1,7 +1,6 @@
-// stand-in for the portal's "issue a key" screen since that doesn't exist yet
-// run: npm run seed:partner (from backend/)
-// running it again won't duplicate the partner, but it also won't reprint the key -
-// delete the doc first if you actually need a new one
+// Stand-in for the portal's key-issuance screen, which doesn't exist yet.
+// Run: npm run seed:partner (from backend/). Re-running won't duplicate the partner
+// or reprint the key - delete the doc first to rotate.
 import { IPartner, PARTNER_COLLECTION } from "../models/partner.model";
 import { findOne, insertOne } from "../config/dataApi";
 import { generateApiKey } from "../utils/crypto";
