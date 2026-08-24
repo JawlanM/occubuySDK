@@ -14,7 +14,12 @@ declare global {
   }
 }
 
-function extractBearer(req: Request): string | null {
+// Single source of truth for reading credentials. TEMPORARY consolidation: per the
+// backend-contract, this should eventually be ONE Authorization: Bearer <sdkToken>
+// minted once via POST /sdk/sessions (still pending design review with Nishad). Until
+// then, this same header carries either a partner key or a per-score session token
+// depending on the route - never a second custom header.
+export function extractBearer(req: Request): string | null {
   const header = req.headers["authorization"];
   if (!header || !header.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length).trim();
@@ -66,7 +71,7 @@ function sessionHeader(req: Request): string | undefined {
 
 export function requireSessionAuth(req: Request, res: Response, next: NextFunction): void {
   const { scoreId } = req.params as { scoreId: string };
-  verifySessionToken(scoreId, sessionHeader(req))
+  verifySessionToken(scoreId, extractBearer(req) ?? undefined)
     .then((ok) => {
       if (!ok) {
         logEvent("auth.session_invalid", { scoreId, detail: { route: req.path } });
@@ -78,4 +83,3 @@ export function requireSessionAuth(req: Request, res: Response, next: NextFuncti
     .catch(next);
 }
 
-export { sessionHeader };

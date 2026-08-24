@@ -5,7 +5,7 @@ import {
   requireSessionAuth,
   verifySessionToken,
   authenticatePartnerKey,
-  sessionHeader,
+  extractBearer,
 } from "../middleware/auth";
 import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
@@ -127,7 +127,7 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
-  const hasValidSession = await verifySessionToken(scoreId, sessionHeader(req));
+  const hasValidSession = await verifySessionToken(scoreId, extractBearer(req) ?? undefined);
   const partner = hasValidSession ? null : await authenticatePartnerKey(req);
 
   if (!hasValidSession && !partner) {
