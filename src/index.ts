@@ -40,11 +40,23 @@ export interface OccubuyApplicant {
   address: string;
 }
 
+/** Per-partner colours, applied only to this init() instance - no partner portal to source these from yet, so pass them directly. */
+export interface OccubuyBranding {
+  /** Accent colour for buttons, the brand dot, checkboxes etc. Defaults to Occubuy's own orange. */
+  primaryColor?: string;
+  /** Gradient/hover shade for primaryColor. Defaults to a matching darker orange if omitted. */
+  primaryColorDark?: string;
+  /** Colour for headings and body accent text. Defaults to Occubuy's own purple. */
+  headingColor?: string;
+}
+
 export interface OccubuyInitConfig {
   apiKey: string;
   /** Where to render the widget, either a CSS selector like "#occubuy-widget" or the actual element. */
   container: string | HTMLElement;
   applicant: OccubuyApplicant;
+  /** Optional colour overrides - see OccubuyBranding. Everything else about the layout is fixed. */
+  branding?: OccubuyBranding;
   /**
    * Where the backend actually lives - defaults to localhost:8787 for local dev. Set this
    * to the real deployed backend URL once it's up on cPanel, e.g. "https://api.occubuy.example".
@@ -164,25 +176,25 @@ const WIDGET_CSS = `
   box-sizing: border-box;
 }
 .occubuy-container * { box-sizing: border-box; }
-.occubuy-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: #4a2c85; margin-bottom: 16px; }
-.occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: #f4855c; flex-shrink: 0; }
-.occubuy-heading { font-weight: 700; font-size: 20px; color: #35205e; margin: 0 0 8px; line-height: 1.3; }
+.occubuy-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--occubuy-heading, #4a2c85); margin-bottom: 16px; }
+.occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--occubuy-accent, #f4855c); flex-shrink: 0; }
+.occubuy-heading { font-weight: 700; font-size: 20px; color: var(--occubuy-heading, #35205e); margin: 0 0 8px; line-height: 1.3; }
 .occubuy-sub { font-weight: 400; font-size: 13.5px; color: #8a8272; margin: 0 0 20px; line-height: 1.55; }
 @keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .occubuy-fade-in { animation: occubuy-fade-in 0.25s ease; }
-.occubuy-access-list { margin: 0 0 20px; padding: 0 0 0 18px; font-size: 13px; color: #4a2c85; line-height: 1.6; }
+.occubuy-access-list { margin: 0 0 20px; padding: 0 0 0 18px; font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.6; }
 .occubuy-access-list li { margin-bottom: 6px; }
 .occubuy-consent {
   display: flex; gap: 10px; align-items: flex-start;
   background: #fff; border: 1px solid #e7e0d0; border-radius: 10px;
   padding: 14px 16px; margin-bottom: 20px;
 }
-.occubuy-consent input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; accent-color: #f4855c; }
-.occubuy-consent label { font-size: 13px; color: #4a2c85; line-height: 1.55; cursor: pointer; }
+.occubuy-consent input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--occubuy-accent, #f4855c); }
+.occubuy-consent label { font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.55; cursor: pointer; }
 .occubuy-btn {
   width: 100%; padding: 14px; border: none; border-radius: 12px;
   font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; color: #fff;
-  background: linear-gradient(135deg, #f4855c, #ea6a3c);
+  background: linear-gradient(135deg, var(--occubuy-accent, #f4855c), var(--occubuy-accent-dark, #ea6a3c));
   box-shadow: 0 4px 12px rgba(234,106,60,0.28);
   transition: filter 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
 }
@@ -194,21 +206,21 @@ const WIDGET_CSS = `
 .occubuy-iframe-wrap { border: 1px solid #e7e0d0; border-radius: 14px; overflow: hidden; margin-bottom: 16px; background: #fff; }
 .occubuy-iframe-wrap iframe { width: 100%; height: 220px; border: none; display: block; }
 .occubuy-spinner-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px 0; }
-.occubuy-spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #f1ecfa; border-top-color: #f4855c; animation: occubuy-spin 0.8s linear infinite; }
+.occubuy-spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #f1ecfa; border-top-color: var(--occubuy-accent, #f4855c); animation: occubuy-spin 0.8s linear infinite; }
 @keyframes occubuy-spin { to { transform: rotate(360deg); } }
 .occubuy-spinner-text { font-size: 13px; color: #8a8272; text-align: center; }
 .occubuy-success { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 20px; }
 .occubuy-check {
   width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, #f4855c, #ea6a3c); color: #fff;
+  background: linear-gradient(135deg, var(--occubuy-accent, #f4855c), var(--occubuy-accent-dark, #ea6a3c)); color: #fff;
   display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 12px;
 }
 .occubuy-score-label { font-size: 12.5px; color: #8a8272; margin-bottom: 2px; }
-.occubuy-score-value { font-size: 40px; font-weight: 800; color: #35205e; margin: 4px 0 10px; }
-.occubuy-score-band { display: inline-block; font-size: 12px; font-weight: 600; color: #35205e; background: #f1ecfa; padding: 4px 14px; border-radius: 999px; }
+.occubuy-score-value { font-size: 40px; font-weight: 800; color: var(--occubuy-heading, #35205e); margin: 4px 0 10px; }
+.occubuy-score-band { display: inline-block; font-size: 12px; font-weight: 600; color: var(--occubuy-heading, #35205e); background: #f1ecfa; padding: 4px 14px; border-radius: 999px; }
 .occubuy-improve { background: #f1ecfa; border-radius: 10px; padding: 12px 14px; margin-bottom: 20px; }
-.occubuy-improve-label { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: #4a2c85; margin-bottom: 4px; }
-.occubuy-improve-text { font-size: 13px; color: #4a2c85; line-height: 1.55; margin: 0; }
+.occubuy-improve-label { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--occubuy-heading, #4a2c85); margin-bottom: 4px; }
+.occubuy-improve-text { font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.55; margin: 0; }
 .occubuy-error { background: #fdf2f0; border: 1px solid #f3c6b8; color: #9a3b1f; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
 `;
 
@@ -381,6 +393,18 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     const fastlinkOrigin = apiBase;
 
     injectStyles();
+
+    // Sets custom properties on the container itself, not its innerHTML - survives every
+    // later containerEl.innerHTML = ... swap between screens.
+    if (resolved.branding?.primaryColor) {
+      containerEl.style.setProperty("--occubuy-accent", resolved.branding.primaryColor);
+    }
+    if (resolved.branding?.primaryColorDark) {
+      containerEl.style.setProperty("--occubuy-accent-dark", resolved.branding.primaryColorDark);
+    }
+    if (resolved.branding?.headingColor) {
+      containerEl.style.setProperty("--occubuy-heading", resolved.branding.headingColor);
+    }
 
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;

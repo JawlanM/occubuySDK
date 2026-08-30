@@ -73,6 +73,20 @@ describe("OccubuyScore.init", () => {
     expect(container.querySelector("[data-occubuy-panel-back]")).toBeNull();
   });
 
+  it("applies branding colours to the container as CSS custom properties", () => {
+    const container = makeContainer();
+    const instance = init({
+      apiKey: "pk_sandbox_test",
+      container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
+      branding: { primaryColor: "#123456", headingColor: "#abcdef" },
+    });
+    instance.start();
+
+    expect(container.style.getPropertyValue("--occubuy-accent")).toBe("#123456");
+    expect(container.style.getPropertyValue("--occubuy-heading")).toBe("#abcdef");
+  });
+
   it("drives consent -> bank connection -> score through to onComplete", async () => {
     const container = makeContainer();
 
