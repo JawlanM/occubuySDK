@@ -168,10 +168,6 @@ const WIDGET_CSS = `
 .occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: #f4855c; flex-shrink: 0; }
 .occubuy-heading { font-weight: 700; font-size: 20px; color: #35205e; margin: 0 0 8px; line-height: 1.3; }
 .occubuy-sub { font-weight: 400; font-size: 13.5px; color: #8a8272; margin: 0 0 20px; line-height: 1.55; }
-.occubuy-steps { display: flex; gap: 6px; margin-bottom: 18px; }
-.occubuy-step-dot { width: 6px; height: 6px; border-radius: 3px; background: #e7e0d0; transition: width 0.2s ease, background 0.2s ease; }
-.occubuy-step-dot-active { width: 20px; background: #f4855c; }
-.occubuy-panel[hidden] { display: none; }
 @keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .occubuy-fade-in { animation: occubuy-fade-in 0.25s ease; }
 .occubuy-access-list { margin: 0 0 20px; padding: 0 0 0 18px; font-size: 13px; color: #4a2c85; line-height: 1.6; }
@@ -246,47 +242,25 @@ function brandHeader(): string {
   return `<div class="occubuy-brand"><span class="occubuy-dot"></span> Occubuy Score</div>`;
 }
 
+// Single screen per Nishad's 25 Aug direction (previously a 3-step panel flow) - all the
+// access/privacy points collapsed into one well-laid-out list rather than split by page.
 function consentTemplate(): string {
   return `
-    <div class="occubuy-container" data-occubuy-step="consent">
+    <div class="occubuy-container occubuy-fade-in" data-occubuy-step="consent">
       ${brandHeader()}
-      <div class="occubuy-steps">
-        <span class="occubuy-step-dot occubuy-step-dot-active" data-occubuy-step-dot="1"></span>
-        <span class="occubuy-step-dot" data-occubuy-step-dot="2"></span>
-        <span class="occubuy-step-dot" data-occubuy-step-dot="3"></span>
+      <h2 class="occubuy-heading">Verify your rental score</h2>
+      <p class="occubuy-sub">A strong Occubuy Score can help back up your application. We connect to your bank to calculate it from your real transaction history, never a credit check, and it takes about a minute.</p>
+      <ul class="occubuy-access-list">
+        <li>Your bank transaction history, via a secure Open Banking connection - read-only, nothing in your account can be moved or changed</li>
+        <li>We never see your online banking login or password</li>
+        <li>Verified through Yodlee, a regulated Open Banking provider - Occubuy never stores your login</li>
+        <li>Your score stays private. The partner only sees it if you choose to share it, on the next screen</li>
+      </ul>
+      <div class="occubuy-consent">
+        <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
+        <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
       </div>
-
-      <div class="occubuy-panel occubuy-fade-in" data-occubuy-panel="1">
-        <h2 class="occubuy-heading">Verify your rental score</h2>
-        <p class="occubuy-sub">A strong Occubuy Score can help back up your application. We connect to your bank to calculate it from your real transaction history, never a credit check, and it takes about a minute.</p>
-        <button type="button" class="occubuy-btn" data-occubuy-panel-next="2">Continue</button>
-      </div>
-
-      <div class="occubuy-panel" data-occubuy-panel="2" hidden>
-        <h2 class="occubuy-heading">What we'll access</h2>
-        <ul class="occubuy-access-list">
-          <li>Your bank transaction history, via a secure Open Banking connection</li>
-          <li>We never see your online banking login or password</li>
-          <li>Read-only - nothing in your account can be moved or changed</li>
-        </ul>
-        <button type="button" class="occubuy-btn" data-occubuy-panel-next="3">Continue</button>
-        <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-panel-back="1">Back</button>
-      </div>
-
-      <div class="occubuy-panel" data-occubuy-panel="3" hidden>
-        <h2 class="occubuy-heading">Your privacy, protected</h2>
-        <ul class="occubuy-access-list">
-          <li>Bank details are verified through Yodlee, a regulated Open Banking provider - Occubuy never stores your login</li>
-          <li>Your score stays private. The partner only sees it if you choose to share it, on the next screen</li>
-          <li>You can stop at any point before that - nothing is shared automatically</li>
-        </ul>
-        <div class="occubuy-consent">
-          <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
-          <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
-        </div>
-        <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>Start Verification</button>
-        <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-panel-back="2">Back</button>
-      </div>
+      <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>Start Verification</button>
     </div>
   `;
 }
@@ -442,30 +416,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       resolved.onError({ code, message });
     }
 
-    function showConsentPanel(step: number): void {
-      containerEl.querySelectorAll<HTMLElement>("[data-occubuy-panel]").forEach((panel) => {
-        const isTarget = panel.dataset.occubuyPanel === String(step);
-        panel.hidden = !isTarget;
-        if (isTarget) {
-          panel.classList.remove("occubuy-fade-in");
-          void panel.offsetWidth;
-          panel.classList.add("occubuy-fade-in");
-        }
-      });
-      containerEl.querySelectorAll<HTMLElement>("[data-occubuy-step-dot]").forEach((dot) => {
-        dot.classList.toggle("occubuy-step-dot-active", dot.dataset.occubuyStepDot === String(step));
-      });
-    }
-
     function renderConsent(): void {
       containerEl.innerHTML = consentTemplate();
-
-      containerEl.querySelectorAll<HTMLButtonElement>("[data-occubuy-panel-next]").forEach((btn) => {
-        btn.addEventListener("click", () => showConsentPanel(Number(btn.dataset.occubuyPanelNext)));
-      });
-      containerEl.querySelectorAll<HTMLButtonElement>("[data-occubuy-panel-back]").forEach((btn) => {
-        btn.addEventListener("click", () => showConsentPanel(Number(btn.dataset.occubuyPanelBack)));
-      });
 
       const checkbox = containerEl.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]");
       const submitBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]");

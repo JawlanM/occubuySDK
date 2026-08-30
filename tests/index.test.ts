@@ -62,34 +62,15 @@ describe("OccubuyScore.init", () => {
     expect(document.getElementById("occubuy-style")).not.toBeNull();
   });
 
-  it("steps through the consent screen one panel at a time", () => {
+  it("renders the consent checkbox and submit button on a single screen, with no panel-stepping controls", () => {
     const container = makeContainer();
     const instance = init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT });
     instance.start();
 
-    const panel = (n: number) => container.querySelector<HTMLElement>(`[data-occubuy-panel="${n}"]`)!;
-    const dot = (n: number) => container.querySelector<HTMLElement>(`[data-occubuy-step-dot="${n}"]`)!;
-
-    expect(panel(1).hidden).toBe(false);
-    expect(panel(2).hidden).toBe(true);
-    expect(panel(3).hidden).toBe(true);
-    expect(dot(1).classList.contains("occubuy-step-dot-active")).toBe(true);
-
-    container.querySelector<HTMLButtonElement>('[data-occubuy-panel-next="2"]')!.click();
-    expect(panel(1).hidden).toBe(true);
-    expect(panel(2).hidden).toBe(false);
-    expect(dot(2).classList.contains("occubuy-step-dot-active")).toBe(true);
-
-    container.querySelector<HTMLButtonElement>('[data-occubuy-panel-next="3"]')!.click();
-    expect(panel(2).hidden).toBe(true);
-    expect(panel(3).hidden).toBe(false);
-    // the checkbox and submit button live on panel 3
-    expect(panel(3).querySelector("[data-occubuy-consent-checkbox]")).not.toBeNull();
-
-    container.querySelector<HTMLButtonElement>('[data-occubuy-panel-back="2"]')!.click();
-    expect(panel(2).hidden).toBe(false);
-    expect(panel(3).hidden).toBe(true);
-    expect(dot(2).classList.contains("occubuy-step-dot-active")).toBe(true);
+    expect(container.querySelector("[data-occubuy-consent-checkbox]")).not.toBeNull();
+    expect(container.querySelector("[data-occubuy-consent-submit]")).not.toBeNull();
+    expect(container.querySelector("[data-occubuy-panel-next]")).toBeNull();
+    expect(container.querySelector("[data-occubuy-panel-back]")).toBeNull();
   });
 
   it("drives consent -> bank connection -> score through to onComplete", async () => {
