@@ -49,14 +49,21 @@ export async function requirePartnerAuth(req: Request, res: Response, next: Next
   next();
 }
 
-// checks the per-flow token (X-Occubuy-Session header) matches this exact scoreId.
-// this is the part that actually stops someone with just the partner key from
-// reading/sharing/declining a score that isn't theirs
+// checks the per-flow token (X-Occubuy-Session header) matches this exact scoreId and
+// hasn't expired. this is the part that actually stops someone with just the partner key
+// from reading/sharing/declining a score that isn't theirs
 export async function verifySessionToken(scoreId: string, token: string | undefined): Promise<boolean> {
   if (!token) return false;
-  const scoreDoc = await findById<{ sessionTokenHash: string }>(USERSCORE_COLLECTION, scoreId);
+  const scoreDoc = await findById<{ sessionTokenHash: string; sessionTokenExpiresAt?: string }>(
+    USERSCORE_COLLECTION,
+    scoreId
+  );
   if (!scoreDoc) return false;
-  return secretMatchesHash(token, scoreDoc.sessionTokenHash);
+  if (!secretMatchesHash(token, scoreDoc.sessionTokenHash)) return false;
+  if (scoreDoc.sessionTokenExpiresAt && Date.now() > Date.parse(scoreDoc.sessionTokenExpiresAt)) {
+    return false;
+  }
+  return true;
 }
 
 function sessionHeader(req: Request): string | undefined {

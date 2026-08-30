@@ -14,6 +14,8 @@ import { logEvent } from "../utils/auditLog";
 
 export const scoresRouter = Router();
 
+const SESSION_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour - long enough for a real flow, short enough to bound a leak
+
 type ScoreBand = NonNullable<IUserScore["score"]>["band"];
 
 function mockGenerateScore(): { value: number; band: ScoreBand } {
@@ -49,6 +51,7 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
 
   const { token: sessionToken, hash: sessionTokenHash } = generateSessionToken();
   const now = new Date().toISOString();
+  const sessionTokenExpiresAt = new Date(Date.now() + SESSION_TOKEN_TTL_MS).toISOString();
 
   const scoreId = await insertOne(USERSCORE_COLLECTION, {
     userId,
@@ -56,6 +59,7 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
     applicant: validated.applicant,
     status: "CREATED",
     sessionTokenHash,
+    sessionTokenExpiresAt,
     sharedAt: null,
     declinedAt: null,
     createdAt: now,
@@ -120,6 +124,13 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
 // (any status, that's just the customer previewing their own result), or a partner's
 // backend can hit this with its partner key instead - but that path only ever gets
 // something back once sharedAt is set, i.e. after the customer actually clicked Share
+//
+// SECURITY FIX (29 Aug): previously, a valid session token alone skipped the partner-
+// ownership check entirely, so a session token for one partner's score could be replayed
+// alongside a *different* partner's API key (or no key at all) and still return the score.
+// The partner key is now always checked and always has to match the score's own partnerId,
+// regardless of whether a session token is also present - closing that gap. This doesn't
+// change real usage: the SDK always sends its partner key on every request already.
 scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   const { scoreId } = req.params;
 
@@ -128,9 +139,9 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
   }
 
   const hasValidSession = await verifySessionToken(scoreId, sessionHeader(req));
-  const partner = hasValidSession ? null : await authenticatePartnerKey(req);
+  const partner = await authenticatePartnerKey(req);
 
-  if (!hasValidSession && !partner) {
+  if (!partner) {
     logEvent("auth.partner_key_invalid", { scoreId, detail: { route: "GET /scores/:scoreId" } });
     return res.status(401).json({ message: "Invalid or missing credentials", code: "AUTH_REQUIRED" });
   }
@@ -140,14 +151,16 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
-  // partner key alone isn't enough, has to actually be shared first
-  if (partner && !scoreDoc.sharedAt) {
-    return res.status(403).json({ message: "This score has not been shared by the customer", code: "NOT_SHARED" });
+  // 404, not 403: don't confirm the score exists for a different partner. Checked first,
+  // and unconditionally - a matching session token no longer bypasses this.
+  if (scoreDoc.partnerId !== partner._id) {
+    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
-  // 404, not 403: don't confirm the score exists for a different partner.
-  if (partner && scoreDoc.partnerId !== partner._id) {
-    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
+  // Same partner, but no valid session for this exact score: only allowed in once the
+  // customer has actually clicked Share.
+  if (!hasValidSession && !scoreDoc.sharedAt) {
+    return res.status(403).json({ message: "This score has not been shared by the customer", code: "NOT_SHARED" });
   }
 
   if (scoreDoc.status === "CREATED") {

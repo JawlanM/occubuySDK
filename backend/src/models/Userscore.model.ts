@@ -35,6 +35,9 @@ export interface IUserScore {
   // hash of the token POST /scores hands back once - every later call for this scoreId
   // has to bring it, that's what actually locks the score to this one flow
   sessionTokenHash: string;
+  // token stops working after this, even if otherwise correct - keeps a leaked token's
+  // exposure window short instead of it being valid forever
+  sessionTokenExpiresAt: string;
   sharedAt?: string | null;
   declinedAt?: string | null;
   createdAt?: string;
