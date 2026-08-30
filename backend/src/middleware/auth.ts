@@ -14,7 +14,15 @@ declare global {
   }
 }
 
-function extractBearer(req: Request): string | null {
+// Reads the partner key from Authorization. NOTE: a same-day push tried consolidating
+// the session token onto this same header too (removing X-Occubuy-Session), matching a
+// backend-contract/openapi.yaml with a single BearerAuth scheme. Not taken here as-is:
+// it broke every SDK call past bank-connection (the SDK still sends the session token
+// via X-Occubuy-Session, not Authorization) and it dropped the partner-ownership check
+// on GET /scores/:scoreId (see the 29 Aug security fix below), reopening that gap. If
+// that consolidation happens for real, it needs the session token itself redesigned to
+// prove ownership (e.g. signed, encoding partnerId) instead of just moving header names.
+export function extractBearer(req: Request): string | null {
   const header = req.headers["authorization"];
   if (!header || !header.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length).trim();
@@ -86,3 +94,4 @@ export function requireSessionAuth(req: Request, res: Response, next: NextFuncti
 }
 
 export { sessionHeader };
+
