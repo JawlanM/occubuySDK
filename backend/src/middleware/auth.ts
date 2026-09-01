@@ -40,6 +40,8 @@ export async function authenticatePartnerKey(req: Request): Promise<IPartner | n
   const partner = await findOne<IPartner>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
 
   if (!partner || !secretMatchesHash(key, partner.apiKeyHash)) return null;
+
+  if (!partner || !secretMatchesHash(key, partner.apiKeyHash)) return null;
   return partner;
 }
 
