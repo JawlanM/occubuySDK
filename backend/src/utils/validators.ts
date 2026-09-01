@@ -1,4 +1,4 @@
-// Same rules as the SDK/demo form, but this is the one that actually blocks bad data -
+  // Same rules as the SDK/demo form, but this is the one that actually blocks bad data -
 // those are UX only.
 
 const AU_MOBILE = /^(?:\+?61|0)4\d{2}[\s-]?\d{3}[\s-]?\d{3}$/;

@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import { scoresRouter } from "./routes/scores.routes";
 import { fastlinkRouter } from "./routes/fastlink.routes";
+import { partnerRouter } from "./routes/partner.routes";
 
 export const app = express();
 
@@ -50,3 +51,4 @@ app.use(express.json());
 
 app.use("/api", scoresRouter);
 app.use(fastlinkRouter);
+app.use(partnerRouter);

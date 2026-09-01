@@ -46,18 +46,22 @@ export interface IPartner {
   apiKeyHash: string;
   category: "mortgage" | "property" | "insurance" | "utility" | "lifestyle";
   status:
-    | "draft"
-    | "pending_review"
-    | "approved"
-    | "live"
-    | "paused"
-    | "suspended"
-    | "archived";
+  | "draft"
+  | "pending_review"
+  | "approved"
+  | "live"
+  | "paused"
+  | "suspended"
+  | "archived";
   primaryContact: IContact;
   secondaryContacts?: ISecondaryContact[];
   monetisation?: IMonetisation;
   compliance?: ICompliance;
   onboardingStage?: string;
+  branding?: {
+    primaryColor?: string;
+    logoUrl?: string;
+  };
   audit: IAudit;
 }
 
