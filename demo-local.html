@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Occubuy SDK — local live demo</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f4f1ea; margin: 0; padding: 40px 20px; }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 18px; }
+  .card { background: #fff; border: 1px solid #e7e0d0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: #666; }
+  .field input { width: 100%; padding: 9px 11px; border: 1px solid #e7e0d0; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+  button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: #f4855c; color: #fff; font-weight: 600; cursor: pointer; }
+  #occubuy-widget { margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Occubuy SDK — local live demo (real FastLink protocol, local backend)</h1>
+  <div id="occubuy-widget" style="display:none;"></div>
+  <div class="card" id="applicantCard">
+    <form id="applicantForm">
+      <div class="field"><label>Full name</label><input id="fullName" value="Jordan Lee" required /></div>
+      <div class="field"><label>Email</label><input id="email" type="email" value="jordan@email.com" required /></div>
+      <div class="field"><label>Phone</label><input id="phone" value="0412 345 678" required /></div>
+      <div class="field"><label>Date of birth</label><input id="dob" type="date" value="1998-04-12" required /></div>
+      <div class="field"><label>Address</label><input id="address" value="12 Example St, Sydney NSW 2000" required /></div>
+      <button type="submit">Start Verification</button>
+    </form>
+  </div>
+</main>
+
+<script src="dist/occubuy-sdk.iife.global.js"></script>
+<script>
+  const applicantForm = document.getElementById("applicantForm");
+  const applicantCard = document.getElementById("applicantCard");
+  const widgetContainer = document.getElementById("occubuy-widget");
+
+  // Same partner key already seeded against this Mongo (see index.html) - reused here,
+  // pointed at the LOCAL backend instead of the deployed Render one, so this exercises
+  // the uncommitted real-FastLink-protocol code, not whatever's actually deployed.
+  const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_jmrealestate_2efdd1520b9234bc2e00a0fd76ff2ea262721fa4165bfaef";
+  const OCCUBUY_API_BASE = "http://localhost:8787";
+
+  applicantForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    applicantCard.style.display = "none";
+    widgetContainer.style.display = "block";
+
+    const scoreSdk = window.OccubuyScore.init({
+      apiKey: OCCUBUY_PARTNER_API_KEY,
+      apiBase: OCCUBUY_API_BASE,
+      container: "#occubuy-widget",
+      environment: "sandbox",
+      applicant: {
+        fullName: document.getElementById("fullName").value,
+        email: document.getElementById("email").value,
+        phone: document.getElementById("phone").value,
+        dob: document.getElementById("dob").value,
+        address: document.getElementById("address").value,
+      },
+      onComplete: (result) => { console.log("onComplete", result); alert("Score shared: " + JSON.stringify(result)); },
+      onCancel: () => { console.log("onCancel"); widgetContainer.style.display = "none"; applicantCard.style.display = "block"; },
+      onDecline: () => { console.log("onDecline"); widgetContainer.style.display = "none"; applicantCard.style.display = "block"; },
+      onError: (err) => { console.log("onError", err); },
+    });
+    scoreSdk.start();
+  });
+</script>
+</body>
+</html>
