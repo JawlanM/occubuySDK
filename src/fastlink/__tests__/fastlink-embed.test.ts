@@ -40,6 +40,7 @@ function container(): HTMLElement {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  delete (window as { fastlink?: unknown }).fastlink;
 });
 
 describe("mountFastLink", () => {
@@ -146,10 +147,87 @@ describe("mountFastLink", () => {
     expect(() => handle.destroy()).not.toThrow();
   });
 
-  it("rejects the unimplemented yodleeJs transport", () => {
-    container();
-    expect(() =>
-      mountFastLink("fastlink-container", { session, transport: "yodleeJs" })
-    ).toThrow(/not implemented/);
+  describe("yodleeJs transport", () => {
+    /**
+     * `loadYodleeInitializeJs()` skips injecting the real `<script>` whenever
+     * `window.fastlink` is already defined - stubbing it here is the whole test seam,
+     * no network/script mocking needed.
+     */
+    function stubYodleeJs() {
+      const open = vi.fn();
+      const close = vi.fn();
+      (window as unknown as { fastlink: { open: typeof open; close: typeof close } }).fastlink = {
+        open,
+        close
+      };
+      return { open, close };
+    }
+
+    it("calls window.fastlink.open with fastLinkURL, accessToken and configName", async () => {
+      const el = container();
+      const { open } = stubYodleeJs();
+
+      const handle = mountFastLink(el, { session, transport: "yodleeJs" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(open).toHaveBeenCalledTimes(1);
+      const [options, containerId] = open.mock.calls[0];
+      expect(options.fastLinkURL).toBe(session.fastlinkUrl);
+      expect(options.accessToken).toBe(session.accessToken);
+      expect(options.params).toMatchObject({ configName: "Verification" });
+      expect(containerId).toBe(el.id);
+
+      handle.destroy();
+    });
+
+    it("resolves success when onSuccess reports a linked site", async () => {
+      const el = container();
+      const { open } = stubYodleeJs();
+
+      const handle = mountFastLink(el, { session, transport: "yodleeJs" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const options = open.mock.calls[0][0];
+      options.onSuccess(successData);
+      options.onClose({ ...successData, action: "exit" });
+
+      const outcome = await handle.result;
+      expect(outcome.cancelled).toBe(false);
+      expect(outcome.payload?.providerAccountId).toBe(11107612);
+
+      handle.destroy();
+    });
+
+    it("resolves cancelled when onClose reports no linked site", async () => {
+      const el = container();
+      const { open } = stubYodleeJs();
+
+      const handle = mountFastLink(el, { session, transport: "yodleeJs" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const options = open.mock.calls[0][0];
+      options.onClose({ action: "exit", sites: [] });
+
+      const outcome = await handle.result;
+      expect(outcome.cancelled).toBe(true);
+      expect(outcome.payload).toBeUndefined();
+
+      handle.destroy();
+    });
+
+    it("destroy calls window.fastlink.close", async () => {
+      const el = container();
+      const { close } = stubYodleeJs();
+
+      const handle = mountFastLink(el, { session, transport: "yodleeJs" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      handle.destroy();
+      expect(close).toHaveBeenCalledTimes(1);
+    });
   });
 });

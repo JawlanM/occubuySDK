@@ -16,6 +16,23 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
   } as Response;
 }
 
+// Matches what POST /scores actually returns now (backend/src/routes/scores.routes.ts) -
+// a real FastLink session, not a placeholder the SDK ignores.
+const FASTLINK_SESSION = {
+  fastlinkUrl: "http://localhost:8787/fastlink",
+  accessToken: "mock-access-token",
+  configName: "Verification",
+};
+
+// Real FastLink 4 success shape: a POST_MESSAGE envelope with data.sites[], matching
+// src/fastlink/fastlink-events.ts's parsing.
+function fastLinkSuccessMessage(site: Record<string, unknown>) {
+  return {
+    type: "POST_MESSAGE",
+    data: { sites: [site] },
+  };
+}
+
 // same shape the mock partner form collects - see demo/mockPartnerWebApp.html
 const VALID_APPLICANT: OccubuyApplicant = {
   fullName: "Jordan Lee",
@@ -94,7 +111,7 @@ describe("OccubuyScore.init", () => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
         return Promise.resolve(
-          jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token", fastlinkSession: "fake-session" })
+          jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token", fastlinkSession: FASTLINK_SESSION })
         );
       }
       if (url.endsWith("/api/scores/score_123/complete")) {
@@ -136,11 +153,20 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: {
-          type: "FastLink",
-          event: "SUCCESS",
-          data: { providerId: 16442, providerAccountId: 12345678, requestId: "req_1", providerName: "ANZ", status: "SUCCESS" },
-        },
+        data: fastLinkSuccessMessage({
+          providerId: 16442,
+          providerAccountId: 12345678,
+          requestId: "req_1",
+          providerName: "ANZ",
+          status: "SUCCESS",
+        }),
+        origin: "http://localhost:8787",
+        source: iframe.contentWindow,
+      })
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
         origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
@@ -183,7 +209,9 @@ describe("OccubuyScore.init", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
-        return Promise.resolve(jsonResponse({ scoreId: "score_789", sessionToken: "test-session-token" }));
+        return Promise.resolve(
+          jsonResponse({ scoreId: "score_789", sessionToken: "test-session-token", fastlinkSession: FASTLINK_SESSION })
+        );
       }
       if (url.endsWith("/api/scores/score_789/complete")) {
         return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
@@ -220,11 +248,20 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: {
-          type: "FastLink",
-          event: "SUCCESS",
-          data: { providerId: 16442, providerAccountId: 22334455, requestId: "req_2", providerName: "ANZ", status: "SUCCESS" },
-        },
+        data: fastLinkSuccessMessage({
+          providerId: 16442,
+          providerAccountId: 22334455,
+          requestId: "req_2",
+          providerName: "ANZ",
+          status: "SUCCESS",
+        }),
+        origin: "http://localhost:8787",
+        source: iframe.contentWindow,
+      })
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
         origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
@@ -250,7 +287,9 @@ describe("OccubuyScore.init", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/scores")) {
-        return Promise.resolve(jsonResponse({ scoreId: "score_456", sessionToken: "test-session-token" }));
+        return Promise.resolve(
+          jsonResponse({ scoreId: "score_456", sessionToken: "test-session-token", fastlinkSession: FASTLINK_SESSION })
+        );
       }
       if (url.endsWith("/api/scores/score_456/complete")) {
         return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
@@ -289,11 +328,20 @@ describe("OccubuyScore.init", () => {
     const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: {
-          type: "FastLink",
-          event: "SUCCESS",
-          data: { providerId: 16442, providerAccountId: 33445566, requestId: "req_3", providerName: "ANZ", status: "SUCCESS" },
-        },
+        data: fastLinkSuccessMessage({
+          providerId: 16442,
+          providerAccountId: 33445566,
+          requestId: "req_3",
+          providerName: "ANZ",
+          status: "SUCCESS",
+        }),
+        origin: "http://localhost:8787",
+        source: iframe.contentWindow,
+      })
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
         origin: "http://localhost:8787",
         source: iframe.contentWindow,
       })
@@ -324,7 +372,9 @@ describe("OccubuyScore.init", () => {
       const fetchMock = vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith("/api/scores")) {
-          return Promise.resolve(jsonResponse({ scoreId, sessionToken: "test-session-token" }));
+          return Promise.resolve(
+            jsonResponse({ scoreId, sessionToken: "test-session-token", fastlinkSession: FASTLINK_SESSION })
+          );
         }
         if (url.endsWith(`/api/scores/${scoreId}/complete`)) {
           return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
@@ -352,11 +402,20 @@ describe("OccubuyScore.init", () => {
       const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: {
-            type: "FastLink",
-            event: "SUCCESS",
-            data: { providerId: 16442, providerAccountId: 44556677, requestId: `req_${scoreId}`, providerName: "ANZ", status: "SUCCESS" },
-          },
+          data: fastLinkSuccessMessage({
+            providerId: 16442,
+            providerAccountId: 44556677,
+            requestId: `req_${scoreId}`,
+            providerName: "ANZ",
+            status: "SUCCESS",
+          }),
+          origin: "http://localhost:8787",
+          source: iframe.contentWindow,
+        })
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
           origin: "http://localhost:8787",
           source: iframe.contentWindow,
         })
@@ -429,7 +488,9 @@ describe("OccubuyScore.init", () => {
   it("ignores FastLink messages from an untrusted origin", async () => {
     const container = makeContainer();
     const fetchMock = vi.fn(() =>
-      Promise.resolve(jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token" }))
+      Promise.resolve(
+        jsonResponse({ scoreId: "score_123", sessionToken: "test-session-token", fastlinkSession: FASTLINK_SESSION })
+      )
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -448,7 +509,7 @@ describe("OccubuyScore.init", () => {
 
     window.dispatchEvent(
       new MessageEvent("message", {
-        data: { type: "FastLink", event: "SUCCESS", data: { bank: "Evil Bank" } },
+        data: fastLinkSuccessMessage({ providerId: 1, providerAccountId: 2, requestId: "evil", providerName: "Evil Bank", status: "SUCCESS" }),
         origin: "https://evil.example",
         source: null,
       })

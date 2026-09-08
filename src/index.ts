@@ -1,3 +1,8 @@
+import { FastLinkFlowState, hasSuccessSite, latestSuccessSite, parseFastLinkMessage } from "./fastlink/fastlink-events.js";
+import { buildFastLinkForm, fastLinkOrigin } from "./fastlink/fastlink-form.js";
+import { loadYodleeInitializeJs } from "./fastlink/fastlink-embed.js";
+import type { FastLinkSession, FastLinkSuccessPayload } from "./fastlink/models.js";
+
 export type OccubuyEnvironment = "sandbox" | "production";
 
 export interface OccubuyScoreResult {
@@ -148,16 +153,28 @@ function improvementCopy(band: OccubuyScoreResult["band"]): string {
   }
 }
 
-interface FastLinkMessage {
-  type: "FastLink";
-  event: string;
-  data?: Record<string, unknown>;
-}
+/**
+ * Accepts the `fastlinkUrl` / `fastLinkUrl` / `url` aliases, so a minor backend
+ * field-naming difference doesn't silently break the widget.
+ */
+function normalizeFastLinkSession(raw: unknown): FastLinkSession | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  const url = record.fastlinkUrl ?? record.fastLinkUrl ?? record.url;
+  if (typeof url !== "string" || url.length === 0) return null;
+  if (typeof record.accessToken !== "string" || record.accessToken.length === 0) return null;
 
-function isFastLinkMessage(value: unknown): value is FastLinkMessage {
-  if (typeof value !== "object" || value === null) return false;
-  const record = value as Record<string, unknown>;
-  return record.type === "FastLink" && typeof record.event === "string";
+  return {
+    fastlinkUrl: url,
+    accessToken: record.accessToken,
+    configName: typeof record.configName === "string" ? record.configName : undefined,
+    extraParams:
+      typeof record.extraParams === "object" && record.extraParams !== null
+        ? (record.extraParams as Record<string, string>)
+        : undefined,
+    expiresAt: typeof record.expiresAt === "string" ? record.expiresAt : undefined,
+    transport: record.transport === "yodleeJs" ? "yodleeJs" : "postMessage",
+  };
 }
 
 // Widget styles, injected once. Every class is "occubuy-"-prefixed to avoid clashing
@@ -283,16 +300,14 @@ function bankConnectionTemplate(): string {
       ${brandHeader()}
       <h2 class="occubuy-heading">Connect your bank</h2>
       <p class="occubuy-sub">Select the bank your income is paid into to continue.</p>
-      <div class="occubuy-iframe-wrap">
+      <div class="occubuy-iframe-wrap" data-occubuy-fastlink-wrap>
         <iframe
-          name="occubuy-fastlink-frame"
           data-occubuy-fastlink-iframe
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts allow-same-origin allow-forms"
           referrerpolicy="no-referrer"
           title="Bank connection"
         ></iframe>
       </div>
-      <form data-occubuy-fastlink-form method="POST" target="occubuy-fastlink-frame" style="display:none;" aria-hidden="true"></form>
       <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-bank-cancel>Cancel</button>
     </div>
   `;
@@ -389,8 +404,6 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     }
     const containerEl: HTMLElement = maybeContainer;
     const apiBase = resolved.apiBase ?? DEFAULT_API_BASE;
-    const fastlinkUrl = `${apiBase}/fastlink`;
-    const fastlinkOrigin = apiBase;
 
     injectStyles();
 
@@ -469,13 +482,15 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         })
           .then((res) => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json() as Promise<{ scoreId?: string; sessionToken?: string }>;
+            return res.json() as Promise<{ scoreId?: string; sessionToken?: string; fastlinkSession?: unknown }>;
           })
           .then((data) => {
             if (cancelled) return;
             if (!data.scoreId || !data.sessionToken) throw new Error("Malformed response");
+            const session = normalizeFastLinkSession(data.fastlinkSession);
+            if (!session) throw new Error("Malformed FastLink session");
             sessionToken = data.sessionToken;
-            renderBankConnection(data.scoreId);
+            renderBankConnection(data.scoreId, session);
           })
           .catch(() => {
             if (!cancelled) fail("START_FAILED", "We couldn't start your verification. Please try again.");
@@ -483,36 +498,134 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       });
     }
 
-    function renderBankConnection(scoreId: string): void {
+    // Launches real Yodlee FastLink 4's actual protocol (see src/fastlink/) against
+    // whichever provider the backend's fastlinkSession points at - a mock today, a real
+    // provider later, without this function changing. FastLink is a form-POST target,
+    // not a URL, and its success/exit events can arrive in either order - both handled
+    // by buildFastLinkForm/parseFastLinkMessage/FastLinkFlowState rather than reimplemented here.
+    function renderBankConnection(scoreId: string, session: FastLinkSession): void {
       containerEl.innerHTML = bankConnectionTemplate();
-      const iframe = containerEl.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]");
-      const form = containerEl.querySelector<HTMLFormElement>("[data-occubuy-fastlink-form]");
       const cancelBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-bank-cancel]");
-      if (!iframe || !form || !cancelBtn) return;
-
-      form.action = fastlinkUrl;
+      if (!cancelBtn) return;
       cancelBtn.addEventListener("click", cancel);
+
+      if (session.transport === "yodleeJs") {
+        renderBankConnectionViaYodleeJs(scoreId, session);
+      } else {
+        renderBankConnectionViaPostMessage(scoreId, session);
+      }
+    }
+
+    // Real Yodlee tenants' edge security (Imperva) blocks the hand-built form POST
+    // below with "Error 15" - verified 8-9 Sep 2026 against a real sandbox account,
+    // referrer policy and configName both ruled out as the cause, while Yodlee's own
+    // official launch path (initialize.js + window.fastlink.open()) works on the
+    // identical credentials. The backend sets fastlinkSession.transport accordingly -
+    // see FastLinkTransport's doc comment in fastlink/models.ts for the full story.
+    function renderBankConnectionViaYodleeJs(scoreId: string, session: FastLinkSession): void {
+      const wrap = containerEl.querySelector<HTMLElement>("[data-occubuy-fastlink-wrap]");
+      const iframe = containerEl.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]");
+      if (!wrap) return;
+      // window.fastlink.open() builds its own iframe inside the container - the
+      // pre-built one is only for the postMessage transport.
+      iframe?.remove();
+
+      const flowState = new FastLinkFlowState();
+      let pendingPayload: FastLinkSuccessPayload | undefined;
+      let settled = false;
+
+      function finish(): void {
+        if (settled) return;
+        settled = true;
+        if (pendingPayload) completeBankConnection(scoreId, pendingPayload);
+      }
+
+      function handle(data: Record<string, unknown>, isExit: boolean): void {
+        if (settled || cancelled) return;
+
+        const success = latestSuccessSite(data);
+        if (success) {
+          pendingPayload = success;
+          if (flowState.onSuccess().finish) finish();
+        }
+
+        if (isExit) {
+          const decision = flowState.onExit(hasSuccessSite(data) || pendingPayload !== undefined);
+          if (decision.finish) finish();
+          else if (decision.cancel) {
+            settled = true;
+            cancel();
+          }
+        }
+      }
+
+      loadYodleeInitializeJs()
+        .then((fastlink) => {
+          if (cancelled) return;
+          fastlink.open(
+            {
+              fastLinkURL: session.fastlinkUrl,
+              accessToken: session.accessToken,
+              forceIframe: true,
+              params: {
+                ...(session.configName ? { configName: session.configName } : {}),
+                ...session.extraParams,
+              },
+              onSuccess: (data) => handle(data, false),
+              onError: (data) => handle(data, true),
+              onClose: (data) => handle(data, true),
+              onEvent: (data) => handle(data, false),
+            },
+            wrap.id || (wrap.id = "occubuy-fastlink-container")
+          );
+        })
+        .catch(() => {
+          if (!cancelled) fail("BANK_CONNECTION_FAILED", "We couldn't load the bank connection tool. Please try again.");
+        });
+    }
+
+    function renderBankConnectionViaPostMessage(scoreId: string, session: FastLinkSession): void {
+      const iframe = containerEl.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]");
+      if (!iframe) return;
+
+      const expectedOrigin = fastLinkOrigin(session.fastlinkUrl);
+      const flowState = new FastLinkFlowState();
+      let pendingPayload: FastLinkSuccessPayload | undefined;
+
+      function finish(): void {
+        if (messageListener) window.removeEventListener("message", messageListener);
+        if (pendingPayload) completeBankConnection(scoreId, pendingPayload);
+      }
 
       messageListener = (event: MessageEvent) => {
         // Validates both origin and source - never trust postMessage without confirming
-        // the sender is this exact iframe.
-        if (event.origin !== fastlinkOrigin) return;
+        // the sender is this exact iframe on this exact provider's origin.
+        if (expectedOrigin !== undefined && event.origin !== expectedOrigin) return;
         if (event.source !== iframe.contentWindow) return;
-        if (!isFastLinkMessage(event.data)) return;
 
-        if (event.data.event === "SUCCESS") {
-          if (messageListener) window.removeEventListener("message", messageListener);
-          completeBankConnection(scoreId, event.data.data ?? {});
-        } else if (event.data.event === "CANCEL" || event.data.event === "EXIT") {
-          cancel();
+        const parsed = parseFastLinkMessage(typeof event.data === "string" ? event.data : (event.data as object));
+
+        // Success can ride on any message type, so this runs before the type switch below.
+        const success = latestSuccessSite(parsed.data);
+        if (success) {
+          pendingPayload = success;
+          if (flowState.onSuccess().finish) finish();
+        }
+
+        if (parsed.type === "POST_MESSAGE" && parsed.action === "exit") {
+          const decision = flowState.onExit(hasSuccessSite(parsed.data) || pendingPayload !== undefined);
+          if (decision.finish) finish();
+          else if (decision.cancel) cancel();
         }
       };
       window.addEventListener("message", messageListener);
 
-      form.submit();
+      // FastLink is a POST target, not a URL - buildFastLinkForm renders the
+      // self-submitting form (accessToken + extraParams) directly into the iframe.
+      iframe.srcdoc = buildFastLinkForm(session, window.location.href);
     }
 
-    function completeBankConnection(scoreId: string, providerData: Record<string, unknown>): void {
+    function completeBankConnection(scoreId: string, providerData: FastLinkSuccessPayload): void {
       fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/complete`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),

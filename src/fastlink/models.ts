@@ -42,22 +42,40 @@ export interface OccubuyError {
 }
 
 /**
- * Everything needed to POST into Yodlee FastLink 4.
+ * How FastLink is launched.
  *
- * FastLink is not a URL you navigate to — it is a form POST target. `accessToken`
- * and `extraParams` are submitted as form fields; see `fastlink-form.ts`.
+ * `postMessage` (default) is the SDK's own hand-built form-POST-into-an-iframe
+ * approach — fine for the mock provider, but real Yodlee tenants' edge security
+ * (Imperva) blocks it: verified 8-9 Sep 2026, a raw form POST gets "Error 15,
+ * blocked by our security service" on every attempt (referrer policy and configName
+ * both ruled out as the cause), while Yodlee's own official launch path — the
+ * `initialize.js` script + `window.fastlink.open()` — works on the identical
+ * account/credentials. `yodleeJs` is that official path; see `loadYodleeInitializeJs`
+ * in `fastlink-embed.ts`.
+ */
+export type FastLinkTransport = "postMessage" | "yodleeJs";
+
+/**
+ * Everything needed to launch Yodlee FastLink 4.
+ *
+ * With `transport: "postMessage"` (or omitted), FastLink is a form POST target, not
+ * a URL — `accessToken` and `extraParams` are submitted as form fields; see
+ * `fastlink-form.ts`. With `transport: "yodleeJs"`, the backend has decided this
+ * tenant needs the official `initialize.js` launch path instead.
  */
 export interface FastLinkSession {
-  /** The FastLink POST target. Accepts the `fastLinkUrl` / `url` aliases when decoding. */
+  /** The FastLink POST target / `fastLinkURL`. Accepts the `fastLinkUrl` / `url` aliases when decoding. */
   fastlinkUrl: string;
   /** Yodlee access token, without the `Bearer ` prefix. */
   accessToken: string;
-  /** Yodlee tenant config name, submitted inside `extraParams`. */
+  /** Yodlee tenant config name, submitted inside `extraParams` (postMessage) or `params` (yodleeJs). */
   configName?: string;
   /** Extra FastLink params merged in alongside `configName` and `intentUrl`. */
   extraParams?: Record<string, string>;
   /** When the Yodlee token expires. Yodlee tokens live 30 minutes. */
   expiresAt?: string;
+  /** Defaults to `"postMessage"` when omitted, matching the mock provider's shape. */
+  transport?: FastLinkTransport;
 }
 
 /**

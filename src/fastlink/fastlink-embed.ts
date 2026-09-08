@@ -6,7 +6,9 @@ import {
   type FastLinkEvent
 } from "./fastlink-events.js";
 import { buildFastLinkForm } from "./fastlink-form.js";
-import type { FastLinkSession, FastLinkSuccessPayload } from "./models.js";
+import type { FastLinkSession, FastLinkSuccessPayload, FastLinkTransport } from "./models.js";
+
+export type { FastLinkTransport } from "./models.js";
 
 /**
  * Renders Yodlee FastLink 4 into a host-supplied container.
@@ -16,14 +18,66 @@ import type { FastLinkSession, FastLinkSuccessPayload } from "./models.js";
  * so this module listens on `window` and filters by origin.
  */
 
+const YODLEE_INITIALIZE_JS_URL = "https://cdn.yodlee.com/fastlink/v4/initialize.js";
+
+interface YodleeFastlinkGlobal {
+  open: (
+    options: {
+      fastLinkURL: string;
+      accessToken: string;
+      forceIframe?: boolean;
+      params?: Record<string, unknown>;
+      onSuccess?: (data: Record<string, unknown>) => void;
+      onError?: (data: Record<string, unknown>) => void;
+      onClose?: (data: Record<string, unknown>) => void;
+      onEvent?: (data: Record<string, unknown>) => void;
+    },
+    containerId: string
+  ) => void;
+  close: () => void;
+}
+
+declare global {
+  interface Window {
+    fastlink?: YodleeFastlinkGlobal;
+  }
+}
+
+let yodleeJsLoad: Promise<YodleeFastlinkGlobal> | undefined;
+
 /**
- * How FastLink events reach the page.
+ * Loads `cdn.yodlee.com/fastlink/v4/initialize.js` once and resolves `window.fastlink`.
  *
- * `postMessage` is the default. `yodleeJs` is reserved for tenants that require
- * `cdn.yodlee.com/fastlink/v4/initialize.js`; it is not implemented yet, and which
- * one this tenant needs is still unverified.
+ * Cached across calls in the same page — Yodlee's own script defines a single global,
+ * loading it twice is wasted work, not a correctness issue, but there is no reason to.
  */
-export type FastLinkTransport = "postMessage" | "yodleeJs";
+export function loadYodleeInitializeJs(): Promise<YodleeFastlinkGlobal> {
+  if (window.fastlink) return Promise.resolve(window.fastlink);
+  if (yodleeJsLoad) return yodleeJsLoad;
+
+  yodleeJsLoad = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = YODLEE_INITIALIZE_JS_URL;
+    script.async = true;
+    script.onload = () => {
+      if (window.fastlink) resolve(window.fastlink);
+      else reject(new Error("initialize.js loaded but did not define window.fastlink"));
+    };
+    script.onerror = () => reject(new Error(`Failed to load ${YODLEE_INITIALIZE_JS_URL}`));
+    document.head.appendChild(script);
+  });
+  return yodleeJsLoad;
+}
+
+let containerIdSeq = 0;
+
+/** Yodlee's `open()` takes a container element id, not a reference — this assigns one if missing. */
+function ensureElementId(element: HTMLElement): string {
+  if (element.id) return element.id;
+  containerIdSeq += 1;
+  element.id = `occubuy-fastlink-container-${containerIdSeq}`;
+  return element.id;
+}
 
 export interface MountFastLinkOptions {
   session: FastLinkSession;
@@ -68,6 +122,81 @@ function originOf(url: string): string | null {
   }
 }
 
+/**
+ * `yodleeJs` transport: loads `initialize.js` and calls `window.fastlink.open()`
+ * instead of POSTing a hand-built form. Required for tenants whose edge security
+ * rejects a raw form POST (see the `FastLinkTransport` doc comment in `models.ts`
+ * for the concrete incident this was verified against).
+ */
+function mountFastLinkViaYodleeJs(
+  target: HTMLElement | string,
+  options: MountFastLinkOptions
+): FastLinkHandle {
+  const { session, onEvent } = options;
+  const container = resolveTarget(target);
+  const containerId = ensureElementId(container);
+  const state = new FastLinkFlowState();
+
+  let destroyed = false;
+  let settle: (outcome: FastLinkOutcome) => void = () => {};
+  let pendingPayload: FastLinkSuccessPayload | undefined;
+
+  const result = new Promise<FastLinkOutcome>((resolve) => {
+    settle = resolve;
+  });
+
+  function handleData(raw: Record<string, unknown>, isExit: boolean): void {
+    if (destroyed) return;
+    const event: FastLinkEvent = { type: isExit ? "POST_MESSAGE" : "UNKNOWN", data: raw, raw: "" };
+    if (isExit) event.action = "exit";
+    onEvent?.(event);
+
+    const success = latestSuccessSite(raw);
+    if (success) {
+      pendingPayload = success;
+      if (state.onSuccess().finish) settle({ cancelled: false, payload: pendingPayload });
+    }
+
+    if (isExit) {
+      const decision = state.onExit(hasSuccessSite(raw) || pendingPayload !== undefined);
+      if (decision.finish) settle({ cancelled: false, payload: pendingPayload });
+      else if (decision.cancel) settle({ cancelled: true });
+    }
+  }
+
+  loadYodleeInitializeJs()
+    .then((fastlink) => {
+      if (destroyed) return;
+      fastlink.open(
+        {
+          fastLinkURL: session.fastlinkUrl,
+          accessToken: session.accessToken,
+          forceIframe: true,
+          params: {
+            ...(session.configName ? { configName: session.configName } : {}),
+            ...session.extraParams
+          },
+          onSuccess: (data) => handleData(data, false),
+          onError: (data) => handleData({ ...data, status: data.status ?? "FAILED" }, true),
+          onClose: (data) => handleData(data, true),
+          onEvent: (data) => handleData(data, false)
+        },
+        containerId
+      );
+    })
+    .catch(() => {
+      if (!destroyed) settle({ cancelled: true });
+    });
+
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    window.fastlink?.close();
+  };
+
+  return { result, destroy };
+}
+
 export function mountFastLink(
   target: HTMLElement | string,
   options: MountFastLinkOptions
@@ -75,9 +204,7 @@ export function mountFastLink(
   const { session, mode = "iframe", transport = "postMessage", onEvent } = options;
 
   if (transport === "yodleeJs") {
-    throw new Error(
-      "The yodleeJs transport is not implemented. Use the default postMessage transport."
-    );
+    return mountFastLinkViaYodleeJs(target, options);
   }
 
   const returnUrl = options.returnUrl ?? window.location.href;
