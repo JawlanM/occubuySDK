@@ -11,6 +11,7 @@ import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
+import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
 
 export const scoresRouter = Router();
 
@@ -27,6 +28,28 @@ function mockGenerateScore(): { value: number; band: ScoreBand } {
   else if (value >= 200) band = "Poor";
   else band = "Insufficient Data";
   return { value, band };
+}
+
+// BANK_PROVIDER=yodlee (and every YODLEE_* var set) mints a real sandbox FastLink session.
+// Anything else - unset, CI, tests, no credentials - keeps the existing mock unchanged.
+// Real minting can fail (network, bad creds); falls back to the mock rather than 500ing
+// the whole /scores call, since this is sandbox testing, not a path anything depends on yet.
+async function buildFastLinkSession(req: Request): Promise<YodleeFastLinkSession> {
+  const wantsReal = process.env.BANK_PROVIDER === "yodlee" && isYodleeConfigured();
+  if (wantsReal) {
+    try {
+      return await createYodleeFastLinkSession();
+    } catch (error) {
+      console.error("Yodlee session mint failed, falling back to mock:", error);
+    }
+  }
+  return {
+    fastlinkUrl: `${req.protocol}://${req.get("host")}/fastlink`,
+    accessToken: "mock-access-token",
+    configName: "Verification",
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // Yodlee's token lifetime
+    transport: "postMessage",
+  };
 }
 
 
@@ -71,12 +94,7 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
   return res.status(201).json({
     scoreId,
     sessionToken,
-    fastlinkSession: {
-      fastlinkUrl: `${req.protocol}://${req.get("host")}/fastlink`,
-      accessToken: "mock-access-token",
-      configName: "Verification",
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // Yodlee's token lifetime
-    },
+    fastlinkSession: await buildFastLinkSession(req),
   });
 });
 
