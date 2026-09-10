@@ -55,6 +55,8 @@ export async function requirePartnerAuth(req: Request, res: Response, next: Next
     res.status(401).json({ message: "Missing or invalid partner API key", code: "PARTNER_KEY_INVALID" });
     return;
   }
+
+  //attach that partners info onto that request if successfull then call next
   req.partner = partner;
   next();
 }
