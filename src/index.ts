@@ -199,8 +199,6 @@ const WIDGET_CSS = `
 .occubuy-sub { font-weight: 400; font-size: 13.5px; color: #8a8272; margin: 0 0 20px; line-height: 1.55; }
 @keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .occubuy-fade-in { animation: occubuy-fade-in 0.25s ease; }
-.occubuy-access-list { margin: 0 0 20px; padding: 0 0 0 18px; font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.6; }
-.occubuy-access-list li { margin-bottom: 6px; }
 .occubuy-consent {
   display: flex; gap: 10px; align-items: flex-start;
   background: #fff; border: 1px solid #e7e0d0; border-radius: 10px;
@@ -239,6 +237,21 @@ const WIDGET_CSS = `
 .occubuy-improve-label { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--occubuy-heading, #4a2c85); margin-bottom: 4px; }
 .occubuy-improve-text { font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.55; margin: 0; }
 .occubuy-error { background: #fdf2f0; border: 1px solid #f3c6b8; color: #9a3b1f; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
+.occubuy-card { background: #fff; border: 1px solid #e7e0d0; border-radius: 14px; padding: 22px 20px; margin-bottom: 16px; }
+.occubuy-card-title { font-weight: 700; font-size: 16px; color: var(--occubuy-heading, #35205e); margin: 0 0 6px; }
+.occubuy-card-sub { font-size: 13px; color: #8a8272; line-height: 1.5; margin: 0 0 18px; }
+.occubuy-steps { list-style: none; margin: 0 0 20px; padding: 0; }
+.occubuy-step { display: flex; align-items: flex-start; gap: 12px; position: relative; padding-bottom: 18px; }
+.occubuy-step:last-child { padding-bottom: 0; }
+.occubuy-step-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--occubuy-accent, #f4855c); flex-shrink: 0; position: relative; z-index: 1; }
+.occubuy-step:not(:last-child) .occubuy-step-dot::after { content: ""; position: absolute; top: 8px; left: 3px; width: 1px; height: 22px; background: #e7e0d0; }
+.occubuy-step-text { font-size: 13.5px; color: var(--occubuy-heading, #4a2c85); line-height: 1.4; padding-top: 1px; }
+.occubuy-btn-icon { display: inline-block; margin-right: 6px; }
+.occubuy-provider-row { text-align: center; font-size: 11.5px; color: #8a8272; margin-top: 12px; }
+.occubuy-provider-badge { display: inline-flex; align-items: center; font-weight: 700; color: var(--occubuy-heading, #4a2c85); background: #f1ecfa; padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
+.occubuy-disclosure { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; color: #8a8272; line-height: 1.5; margin-top: 14px; }
+.occubuy-disclosure-icon { flex-shrink: 0; }
+.occubuy-footnote { font-size: 11.5px; color: #a39c8a; line-height: 1.6; text-align: center; margin: 0; }
 `;
 
 function injectStyles(): void {
@@ -273,23 +286,45 @@ function brandHeader(): string {
 
 // Single screen per Nishad's 25 Aug direction (previously a 3-step panel flow) - all the
 // access/privacy points collapsed into one well-laid-out list rather than split by page.
+// Layout modelled on ConnectID's "Verify your identity" card (numbered-step list + single
+// primary CTA + provider badge + short disclosure line) per the reference the user supplied
+// 12 Sep, restyled with Occubuy's own palette/type instead of cloned 1:1 - the explicit
+// consent checkbox stays (not in the reference) since it's the actual legal consent capture,
+// not just a visual step.
 function consentTemplate(): string {
   return `
     <div class="occubuy-container occubuy-fade-in" data-occubuy-step="consent">
       ${brandHeader()}
       <h2 class="occubuy-heading">Verify your rental score</h2>
-      <p class="occubuy-sub">A strong Occubuy Score can help back up your application. We connect to your bank to calculate it from your real transaction history, never a credit check, and it takes about a minute.</p>
-      <ul class="occubuy-access-list">
-        <li>Your bank transaction history, via a secure Open Banking connection - read-only, nothing in your account can be moved or changed</li>
-        <li>We never see your online banking login or password</li>
-        <li>Verified through Yodlee, a regulated Open Banking provider - Occubuy never stores your login</li>
-        <li>Your score stays private. The partner only sees it if you choose to share it, on the next screen</li>
-      </ul>
-      <div class="occubuy-consent">
-        <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
-        <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
+      <p class="occubuy-sub">A strong Occubuy Score can help back up your application - calculated from your real bank transaction history, never a credit check.</p>
+
+      <div class="occubuy-card">
+        <div class="occubuy-card-title">Get started</div>
+        <p class="occubuy-card-sub">Verify your income and spending through your own bank, in a few quick steps.</p>
+        <ul class="occubuy-steps">
+          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Select your bank</span></li>
+          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Log in to your account</span></li>
+          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Review your details and provide consent</span></li>
+        </ul>
+
+        <div class="occubuy-consent">
+          <input type="checkbox" id="occubuy-consent-checkbox" data-occubuy-consent-checkbox />
+          <label for="occubuy-consent-checkbox">I agree to share my details so Occubuy can verify my rental score with my bank.</label>
+        </div>
+
+        <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>
+          <span class="occubuy-btn-icon">&#8635;</span>Verify with Occubuy Score
+        </button>
+
+        <div class="occubuy-provider-row">Secured by<span class="occubuy-provider-badge">Yodlee</span></div>
+
+        <div class="occubuy-disclosure">
+          <span class="occubuy-disclosure-icon">&#9432;</span>
+          <span>We never see your online banking login or password - nothing in your account can be moved or changed.</span>
+        </div>
       </div>
-      <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>Start Verification</button>
+
+      <p class="occubuy-footnote">Takes about a minute. Your score stays private until you choose to share it with the partner, on the next screen.</p>
     </div>
   `;
 }
