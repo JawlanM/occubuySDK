@@ -72,6 +72,8 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
     });
   }
 
+
+  //runs once your inside  POST / scores
   const { token: sessionToken, hash: sessionTokenHash } = generateSessionToken();
   const now = new Date().toISOString();
   const sessionTokenExpiresAt = new Date(Date.now() + SESSION_TOKEN_TTL_MS).toISOString();
@@ -115,6 +117,8 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
     });
   }
 
+
+  //step 2, renter connects their bank
   const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
@@ -185,6 +189,9 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(200).json({ status: "PROCESSING", retryAfter: 3 });
   }
 
+
+
+  //step 3, widget polls GET /score{id} to check progress
   if (scoreDoc.status === "PROCESSING") {
     // swap this for real scoring engine
     const { value, band } = mockGenerateScore();
