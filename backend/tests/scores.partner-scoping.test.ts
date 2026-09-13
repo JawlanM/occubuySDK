@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import type { IPartner } from "../src/models/partner.model";
 import type { IUserScore } from "../src/models/Userscore.model";
 
-// scores.routes.ts and auth.ts both go through config/dataApi for every read/write - mock
-// it here so this test never touches the real Atlas Data API, and so we control exactly
-// which partner/score docs exist for each case below
+// scores.routes.ts still goes through config/dataApi for score reads/writes - mock it here
+// so this test never touches the real Atlas Data API. Partner auth no longer does (it asks
+// the portal's verify-key endpoint instead, see middleware/auth.ts Phase 2), so that's
+// mocked separately below via global fetch.
 vi.mock("../src/config/dataApi", async () => {
   const actual = await vi.importActual<typeof import("../src/config/dataApi")>(
     "../src/config/dataApi"
@@ -67,22 +68,33 @@ const sharedScore: IUserScore = {
   declinedAt: null,
 };
 
+const originalFetch = global.fetch;
+
 beforeEach(() => {
   // Routes call insertOne for audit logging too; give it a resolved default.
   vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
   vi.mocked(dataApi.updateById).mockResolvedValue(undefined);
 
-  vi.mocked(dataApi.findOne).mockImplementation(async (collection: string, filter: any) => {
-    if (collection === "partners") {
-      if (filter.apiKeyPrefix === partnerA.apiKeyPrefix) return partnerA as any;
-      if (filter.apiKeyPrefix === partnerB.apiKeyPrefix) return partnerB as any;
-    }
-    return null;
-  });
   vi.mocked(dataApi.findById).mockImplementation(async (collection: string, id: string) => {
     if (collection === "userscores" && id === scoreId) return sharedScore as any;
     return null;
   });
+
+  // authenticatePartnerKey() calls the portal's verify-key endpoint instead of a local
+  // collection now (Phase 2) - stand in for the portal here.
+  global.fetch = vi.fn(async (_url, init) => {
+    const { apiKey } = JSON.parse((init?.body as string) ?? "{}") as { apiKey?: string };
+    const match = apiKey === keyA.fullKey ? partnerA : apiKey === keyB.fullKey ? partnerB : null;
+    if (!match) return new Response(JSON.stringify({ message: "Invalid key" }), { status: 401 });
+    return new Response(
+      JSON.stringify({ partnerId: match._id, category: match.category, status: match.status }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  global.fetch = originalFetch;
 });
 
 describe("GET /api/scores/:scoreId - partner scoping", () => {

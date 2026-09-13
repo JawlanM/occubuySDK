@@ -19,15 +19,17 @@ export const partnerRouter = Router();
  * to fall back to defaults on *that* is a frontend concern, not this
  * endpoint's, but returning a clean, predictable shape on the happy path
  * is what we control from here.
+ *
+ * Always returns the defaults now — the portal's Partner schema (the identity source of
+ * truth as of Phase 2, see integration-memory.md) has no branding field yet, so
+ * req.partner no longer carries one. Revisit once the portal grows partner branding.
  */
 const DEFAULT_PRIMARY_COLOR = "#0F62FE";
 const DEFAULT_LOGO_URL: string | null = null;
 
-partnerRouter.get("/partners/config", requirePartnerAuth, (req: Request, res: Response) => {
-  const branding = req.partner!.branding ?? {};
-
+partnerRouter.get("/partners/config", requirePartnerAuth, (_req: Request, res: Response) => {
   return res.status(200).json({
-    primaryColor: branding.primaryColor ?? DEFAULT_PRIMARY_COLOR,
-    logoUrl: branding.logoUrl ?? DEFAULT_LOGO_URL,
+    primaryColor: DEFAULT_PRIMARY_COLOR,
+    logoUrl: DEFAULT_LOGO_URL,
   });
 });
