@@ -21,7 +21,7 @@ vi.mock("../src/config/dataApi", async () => {
 });
 
 import * as dataApi from "../src/config/dataApi";
-import { generateApiKey } from "../src/utils/crypto";
+import { generateApiKey, generateSessionToken } from "../src/utils/crypto";
 import { app } from "../src/app";
 
 const keyA = generateApiKey("partnerA");
@@ -68,7 +68,28 @@ const sharedScore: IUserScore = {
   declinedAt: null,
 };
 
+const shareScoreId = "d".repeat(24);
+const shareSessionToken = generateSessionToken();
+
+const unsharedScore: IUserScore = {
+  _id: shareScoreId,
+  userId: "user-2",
+  partnerId: partnerA._id,
+  applicant: sharedScore.applicant,
+  status: "COMPLETED",
+  score: { value: 812, band: "Excellent" },
+  sessionTokenHash: shareSessionToken.hash,
+  sharedAt: null,
+  declinedAt: null,
+};
+
 const originalFetch = global.fetch;
+
+// Toggled per-test to exercise the "portal push fails" path (Phase 3) without that ever
+// affecting a /share response's own status/body - see the "never blocks the customer"
+// tests below.
+let portalLeadPushShouldFail = false;
+let portalLeadPushCalls: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
   // Routes call insertOne for audit logging too; give it a resolved default.
@@ -77,13 +98,26 @@ beforeEach(() => {
 
   vi.mocked(dataApi.findById).mockImplementation(async (collection: string, id: string) => {
     if (collection === "userscores" && id === scoreId) return sharedScore as any;
+    if (collection === "userscores" && id === shareScoreId) return unsharedScore as any;
     return null;
   });
 
-  // authenticatePartnerKey() calls the portal's verify-key endpoint instead of a local
-  // collection now (Phase 2) - stand in for the portal here.
-  global.fetch = vi.fn(async (_url, init) => {
-    const { apiKey } = JSON.parse((init?.body as string) ?? "{}") as { apiKey?: string };
+  portalLeadPushShouldFail = false;
+  portalLeadPushCalls = [];
+
+  // Stands in for the portal for both calls this backend makes to it: verifying a partner
+  // key (Phase 2, authenticatePartnerKey) and receiving a shared score as a lead (Phase 3,
+  // pushLeadToPortal) - routed by URL since both go through the same global fetch.
+  global.fetch = vi.fn(async (url, init) => {
+    const body = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+
+    if (String(url).includes("/leads")) {
+      portalLeadPushCalls.push(body);
+      if (portalLeadPushShouldFail) return new Response(JSON.stringify({ message: "nope" }), { status: 500 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+
+    const apiKey = body.apiKey as string | undefined;
     const match = apiKey === keyA.fullKey ? partnerA : apiKey === keyB.fullKey ? partnerB : null;
     if (!match) return new Response(JSON.stringify({ message: "Invalid key" }), { status: 401 });
     return new Response(
@@ -116,5 +150,39 @@ describe("GET /api/scores/:scoreId - partner scoping", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("COMPLETED");
     expect(res.body.score.value).toBe(720);
+  });
+});
+
+describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
+  it("pushes the shared score to the portal as a lead", async () => {
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+
+    expect(res.status).toBe(200);
+    expect(res.body.score).toBe(812);
+
+    // the push is fire-and-forget - give its microtask a tick to run
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(portalLeadPushCalls).toHaveLength(1);
+    expect(portalLeadPushCalls[0]).toMatchObject({
+      partnerId: partnerA._id,
+      scoreId: shareScoreId,
+      score: 812,
+      band: "Excellent",
+    });
+  });
+
+  it("still returns the customer's score normally even if the portal push fails", async () => {
+    portalLeadPushShouldFail = true;
+
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+
+    expect(res.status).toBe(200);
+    expect(res.body.score).toBe(812);
+    expect(res.body.band).toBe("Excellent");
+    expect(res.body.reference).toBe(shareScoreId);
   });
 });
