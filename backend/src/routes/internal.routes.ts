@@ -53,7 +53,15 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
 
   const existing = await findOne<PartnerSyncRecord>(PARTNER_COLLECTION, { portalPartnerId });
 
-  const update: Record<string, unknown> = { portalPartnerId, updatedAt: new Date().toISOString() };
+  // the real partners collection still has a unique index on partnerId from the old
+  // create-partner.ts seed script - a synced record has no human-readable partnerId of its
+  // own, so reuse portalPartnerId there too instead of leaving it unset (which Mongo treats
+  // as null, and a unique index only ever allows one null).
+  const update: Record<string, unknown> = {
+    portalPartnerId,
+    partnerId: portalPartnerId,
+    updatedAt: new Date().toISOString(),
+  };
   if (status) update.status = status;
   else if (!existing) update.status = "approved"; // first sync, no status given - safe default
   if (category) update.category = category;
