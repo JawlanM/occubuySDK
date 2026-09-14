@@ -7,7 +7,7 @@ export default function DocsPage() {
           <div className="mb-4 h-2 w-8 rounded-full bg-[#0F62FE]" />
           <h1 className="text-3xl font-semibold tracking-tight">Occubuy Score API</h1>
           <p className="mt-3 text-[#5B6472] leading-relaxed">
-            Heres everything you need to create a renter score, hand off to
+            Everything a partner backend needs to create a renter score, hand off to
             FastLink, and receive the result, connect your platform to Occubuy without
             touching the scoring model itself.
           </p>
@@ -17,9 +17,9 @@ export default function DocsPage() {
         <section className="mb-14">
           <h2 className="text-xl font-semibold mb-2">Authentication</h2>
           <p className="text-[#5B6472] leading-relaxed mb-6">
-            Your partner key identifies your platform and is
+            Two credentials, two jobs. Your partner key identifies your platform and is
             safe to embed in your own page source. Your session token proves a specific
-            request is allowed to touch one specific score.
+            request is allowed to touch one specific score
           </p>
 
           <ol className="space-y-4">
@@ -119,9 +119,37 @@ export default function DocsPage() {
               method="POST"
               path="/scores/{scoreId}/decline"
               auth="X-Occubuy-Session: <sessionToken>"
-              description="The renter declines to share. Permanent — a declined score can't later be shared."
+              description="The renter declines to share. A declined score can't later be shared."
               response={`{ "status": "declined" }`}
             />
+          </div>
+        </section>
+
+        {/* Errors */}
+        <section>
+          <h2 className="text-xl font-semibold mb-4">Error codes</h2>
+          <div className="overflow-hidden rounded-lg border border-[#E1E4EA]">
+            <table className="w-full text-sm">
+              <tbody>
+                {[
+                  ["PARTNER_KEY_INVALID", "Missing or unrecognised partner key."],
+                  ["SESSION_INVALID", "Session token missing, wrong, or expired."],
+                  ["AUTH_REQUIRED", "Neither credential was valid for this request."],
+                  ["SCORE_NOT_FOUND", "No score with this id, or one you're not allowed to see."],
+                  ["INVALID_COMPLETE_PAYLOAD", "Missing providerAccountId, requestId, or status."],
+                  ["INVALID_SCORE_STATE", "This action doesn't apply to the score's current status."],
+                  ["NOT_SHARED", "The renter hasn't shared this score with you yet."],
+                  ["ALREADY_DECLINED", "This score was already declined and can't be shared."],
+                ].map(([code, meaning], i) => (
+                  <tr key={code} className={i % 2 ? "bg-[#FBFBFC]" : ""}>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-[#0F62FE]">
+                      {code}
+                    </td>
+                    <td className="px-4 py-3 text-[#5B6472]">{meaning}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
