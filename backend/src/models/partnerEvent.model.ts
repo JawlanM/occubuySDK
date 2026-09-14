@@ -5,6 +5,7 @@ export type PartnerEventType =
   | "score.completed"
   | "score.shared"
   | "score.declined"
+  | "score.portal_sync_failed"
   | "auth.partner_key_invalid"
   | "auth.session_invalid";
 

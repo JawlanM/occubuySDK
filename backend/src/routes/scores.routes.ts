@@ -12,6 +12,7 @@ import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
 import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
+import { pushLeadToPortal } from "../config/portalClient";
 
 export const scoresRouter = Router();
 
@@ -239,6 +240,20 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
     sharedAt = new Date().toISOString();
     await updateById(USERSCORE_COLLECTION, scoreId, { sharedAt, updatedAt: new Date().toISOString() });
     logEvent("score.shared", { partnerId: scoreDoc.partnerId, scoreId });
+
+    // Best-effort - the portal (occubuy-integration-main) catches this as a "lead" so it
+    // shows up in the partner's own dashboard (integration-memory.md Phase 3). Must never
+    // affect the response below: the customer already has their result either way, and a
+    // retried push is safe since the portal upserts on scoreId.
+    pushLeadToPortal({
+      partnerId: scoreDoc.partnerId,
+      scoreId,
+      score: scoreDoc.score.value,
+      band: scoreDoc.score.band,
+      verifiedAt: sharedAt,
+    }).catch(() => {
+      logEvent("score.portal_sync_failed", { partnerId: scoreDoc.partnerId, scoreId });
+    });
   }
 
   return res.status(200).json({

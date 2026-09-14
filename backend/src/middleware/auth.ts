@@ -1,15 +1,25 @@
 import { Request, Response, NextFunction } from "express";
-import { IPartner, PARTNER_COLLECTION } from "../models/partner.model";
 import { USERSCORE_COLLECTION } from "../models/Userscore.model";
-import { findOne, findById } from "../config/dataApi";
+import { findById } from "../config/dataApi";
+import { portalBaseUrl, internalSecret } from "../config/portalClient";
 import { secretMatchesHash } from "../utils/crypto";
 import { logEvent } from "../utils/auditLog";
+
+// What the portal's verify-key endpoint actually gives us back - not the full IPartner
+// shape (legalName, abn, branding, etc.), since the portal's own Partner schema doesn't
+// carry those and now owns identity. See models/partner.model.ts for the pre-portal shape
+// still used by the local seed script.
+export interface VerifiedPartner {
+  _id: string;
+  category: string | undefined;
+  status: string | undefined;
+}
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      partner?: IPartner;
+      partner?: VerifiedPartner;
     }
   }
 }
@@ -31,18 +41,35 @@ export function extractBearer(req: Request): string | null {
 // same check as requirePartnerAuth below but doesn't reject on failure, just returns null -
 // need that for GET /scores/:scoreId where a bad partner key should fall through to the
 // session-token check instead of dying immediately
-export async function authenticatePartnerKey(req: Request): Promise<IPartner | null> {
+//
+// The portal's `partner` collection is the source of truth for partner identity + API
+// keys (see integration-memory.md Phase 0/2) - this asks the portal's internal verify-key
+// endpoint rather than checking a locally-held copy, so there's only ever one place a key
+// can be issued or revoked.
+export async function authenticatePartnerKey(req: Request): Promise<VerifiedPartner | null> {
   const key = extractBearer(req);
   if (!key) return null;
 
-  const lastUnderscore = key.lastIndexOf("_");
-  const prefix = lastUnderscore === -1 ? key : key.slice(0, lastUnderscore);
-  const partner = await findOne<IPartner>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
+  let portalResponse: Awaited<ReturnType<typeof fetch>>;
+  try {
+    portalResponse = await fetch(`${portalBaseUrl()}/api/internal/partners/verify-key`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Secret": internalSecret(),
+      },
+      body: JSON.stringify({ apiKey: key }),
+    });
+  } catch {
+    logEvent("auth.partner_key_invalid", { detail: { route: req.path, reason: "portal_unreachable" } });
+    return null;
+  }
 
-  if (!partner || !secretMatchesHash(key, partner.apiKeyHash)) return null;
+  if (!portalResponse.ok) return null;
 
-  if (!partner || !secretMatchesHash(key, partner.apiKeyHash)) return null;
-  return partner;
+  const body = (await portalResponse.json()) as { partnerId?: string; category?: string; status?: string };
+  if (!body.partnerId) return null;
+  return { _id: body.partnerId, category: body.category, status: body.status };
 }
 
 // checks the partner's key, basically the same idea as a stripe publishable key - fine to

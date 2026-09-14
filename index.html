@@ -223,7 +223,7 @@
 </main>
 
 <!-- Real built SDK, not a mock. -->
-<script src="../dist/occubuy-sdk.iife.global.js"></script>
+<script src="dist/occubuy-sdk.iife.global.js"></script>
 <script>
   const consentCheck = document.getElementById("consentCheck");
   const verifyBtn = document.getElementById("verifyBtn");
@@ -249,7 +249,8 @@
   // run `npm run seed:partner` in backend/ and paste the printed key in here
   const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_jmrealestate_2efdd1520b9234bc2e00a0fd76ff2ea262721fa4165bfaef";
   // Deployed on Render, not cPanel - see backend/README (cPanel's outbound connection
-  // to MongoDB Atlas is blocked).
+  // to MongoDB Atlas is blocked). For local bank-connection/deep-link testing against
+  // real Yodlee, point this at http://localhost:8787 instead (see bank-connection-plan.md).
   const OCCUBUY_API_BASE = "https://occubuy-backend.onrender.com";
 
   applicantForm.addEventListener("submit", (e) => {

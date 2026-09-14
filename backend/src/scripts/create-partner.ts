@@ -1,4 +1,10 @@
-// Stand-in for the portal's key-issuance screen, which doesn't exist yet.
+// No longer the production path for key issuance - the portal (occubuy-integration-main,
+// POST /api/partners/me/api-key) owns that now, and authenticatePartnerKey() in
+// middleware/auth.ts verifies against the portal instead of this collection. A key this
+// script prints will NOT authenticate real requests against a portal-backed backend -
+// generate the key from the portal itself for that. This is left in place only to seed a
+// local "partners" doc for inspecting the data shape or for tests that mock dataApi
+// directly instead of going through the portal.
 // Run: npm run seed:partner (from backend/). Re-running won't duplicate the partner
 // or reprint the key - delete the doc first to rotate.
 import { IPartner, PARTNER_COLLECTION } from "../models/partner.model";

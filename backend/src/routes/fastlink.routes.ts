@@ -16,8 +16,8 @@ fastlinkRouter.post("/fastlink", (_req: Request, res: Response) => {
 <body style="font-family: sans-serif; padding: 24px;">
   <h3>Fake Bank Connection (demo only)</h3>
   <p>Pick a bank to simulate a successful connection:</p>
-  <button onclick="linkBank('Suncorp', 16441)">Suncorp</button>
-  <button onclick="linkBank('ANZ', 16442)">ANZ</button>
+  <button onclick="linkBank('Test Bank A', 16441)">Test Bank A</button>
+  <button onclick="linkBank('Test Bank B', 16442)">Test Bank B</button>
   <button onclick="cancelLink()">Cancel</button>
 
   <script>
