@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { USERSCORE_COLLECTION } from "../models/Userscore.model";
-import { findById } from "../config/dataApi";
-import { portalBaseUrl, internalSecret } from "../config/portalClient";
+import { PARTNER_COLLECTION } from "../models/partner.model";
+import { findById, findOne } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
 import { logEvent } from "../utils/auditLog";
 
@@ -42,34 +42,32 @@ export function extractBearer(req: Request): string | null {
 // need that for GET /scores/:scoreId where a bad partner key should fall through to the
 // session-token check instead of dying immediately
 //
-// The portal's `partner` collection is the source of truth for partner identity + API
-// keys (see integration-memory.md Phase 0/2) - this asks the portal's internal verify-key
-// endpoint rather than checking a locally-held copy, so there's only ever one place a key
-// can be issued or revoked.
+// The portal is still the only place a key is generated or rotated (source of truth for
+// identity, see integration-memory.md Phase 0/2) - but instead of calling it on every
+// request, this checks a local copy that the portal pushes to on key generation (see
+// routes/internal.routes.ts's POST /partners/sync). Keeps the hot path off the network
+// and off the portal's own uptime.
+interface LocalPartnerRecord {
+  portalPartnerId: string;
+  apiKeyHash?: string;
+  category?: string;
+  status?: string;
+}
+
 export async function authenticatePartnerKey(req: Request): Promise<VerifiedPartner | null> {
   const key = extractBearer(req);
   if (!key) return null;
 
-  let portalResponse: Awaited<ReturnType<typeof fetch>>;
-  try {
-    portalResponse = await fetch(`${portalBaseUrl()}/api/internal/partners/verify-key`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Secret": internalSecret(),
-      },
-      body: JSON.stringify({ apiKey: key }),
-    });
-  } catch {
-    logEvent("auth.partner_key_invalid", { detail: { route: req.path, reason: "portal_unreachable" } });
+  const lastUnderscore = key.lastIndexOf("_");
+  const prefix = lastUnderscore === -1 ? key : key.slice(0, lastUnderscore);
+
+  const partner = await findOne<LocalPartnerRecord>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
+  if (!partner?.apiKeyHash || !secretMatchesHash(key, partner.apiKeyHash)) {
+    logEvent("auth.partner_key_invalid", { detail: { route: req.path, reason: "no_local_match" } });
     return null;
   }
 
-  if (!portalResponse.ok) return null;
-
-  const body = (await portalResponse.json()) as { partnerId?: string; category?: string; status?: string };
-  if (!body.partnerId) return null;
-  return { _id: body.partnerId, category: body.category, status: body.status };
+  return { _id: partner.portalPartnerId, category: partner.category, status: partner.status };
 }
 
 // checks the partner's key, basically the same idea as a stripe publishable key - fine to

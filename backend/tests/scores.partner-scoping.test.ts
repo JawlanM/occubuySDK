@@ -4,9 +4,9 @@ import type { IPartner } from "../src/models/partner.model";
 import type { IUserScore } from "../src/models/Userscore.model";
 
 // scores.routes.ts still goes through config/dataApi for score reads/writes - mock it here
-// so this test never touches the real Atlas Data API. Partner auth no longer does (it asks
-// the portal's verify-key endpoint instead, see middleware/auth.ts Phase 2), so that's
-// mocked separately below via global fetch.
+// so this test never touches the real Atlas Data API. Partner auth now checks a local
+// "partners" copy (synced from the portal on key generation, see routes/internal.routes.ts)
+// instead of calling the portal on every request, so findOne doubles as that lookup below.
 vi.mock("../src/config/dataApi", async () => {
   const actual = await vi.importActual<typeof import("../src/config/dataApi")>(
     "../src/config/dataApi"
@@ -27,8 +27,12 @@ import { app } from "../src/app";
 const keyA = generateApiKey("partnerA");
 const keyB = generateApiKey("partnerB");
 
-const partnerA: IPartner = {
+// portalPartnerId is what authenticatePartnerKey() returns as req.partner._id - keeping it
+// equal to _id here so the rest of this test (which keys scores off partnerA._id) doesn't
+// need to change.
+const partnerA: IPartner & { portalPartnerId: string } = {
   _id: "a".repeat(24),
+  portalPartnerId: "a".repeat(24),
   partnerId: "partnerA",
   legalName: "Partner A Pty Ltd",
   abn: "00000000000",
@@ -40,9 +44,10 @@ const partnerA: IPartner = {
   audit: { createdAt: new Date(), createdBy: "test", updatedAt: new Date(), updatedBy: "test" },
 };
 
-const partnerB: IPartner = {
+const partnerB: IPartner & { portalPartnerId: string } = {
   ...partnerA,
   _id: "b".repeat(24),
+  portalPartnerId: "b".repeat(24),
   partnerId: "partnerB",
   apiKeyPrefix: keyB.prefix,
   apiKeyHash: keyB.hash,
@@ -102,12 +107,21 @@ beforeEach(() => {
     return null;
   });
 
+  // Local partner lookup by apiKeyPrefix - the synced copy authenticatePartnerKey() now
+  // checks instead of calling the portal (see middleware/auth.ts).
+  vi.mocked(dataApi.findOne).mockImplementation(async (collection: string, filter: Record<string, unknown>) => {
+    if (collection !== "partners") return null;
+    const prefix = filter.apiKeyPrefix as string | undefined;
+    if (prefix === partnerA.apiKeyPrefix) return partnerA as any;
+    if (prefix === partnerB.apiKeyPrefix) return partnerB as any;
+    return null;
+  });
+
   portalLeadPushShouldFail = false;
   portalLeadPushCalls = [];
 
-  // Stands in for the portal for both calls this backend makes to it: verifying a partner
-  // key (Phase 2, authenticatePartnerKey) and receiving a shared score as a lead (Phase 3,
-  // pushLeadToPortal) - routed by URL since both go through the same global fetch.
+  // Stands in for the portal, which this backend still calls once, fire-and-forget, when a
+  // score gets shared (Phase 3, pushLeadToPortal).
   global.fetch = vi.fn(async (url, init) => {
     const body = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
 
@@ -117,13 +131,7 @@ beforeEach(() => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
 
-    const apiKey = body.apiKey as string | undefined;
-    const match = apiKey === keyA.fullKey ? partnerA : apiKey === keyB.fullKey ? partnerB : null;
-    if (!match) return new Response(JSON.stringify({ message: "Invalid key" }), { status: 401 });
-    return new Response(
-      JSON.stringify({ partnerId: match._id, category: match.category, status: match.status }),
-      { status: 200 },
-    );
+    return new Response(JSON.stringify({ message: "unexpected fetch in test" }), { status: 500 });
   }) as unknown as typeof fetch;
 });
 
