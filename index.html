@@ -246,8 +246,11 @@
     verifyBtn.classList.toggle("active", consentCheck.checked);
   });
 
-  // run `npm run seed:partner` in backend/ and paste the printed key in here
-  const OCCUBUY_PARTNER_API_KEY = "ocb_live_ild4sw4atba";
+  // generated via occubuy-integration-main's POST /api/partners/me/api-key (real portal
+  // route, syncs to the sdk backend automatically - see routes/internal.routes.ts). the old
+  // seed:partner key below stopped working once auth started checking that sync instead of
+  // its own local seed data.
+  const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_6aa80ac109fb2c1356272958_dd5b3ea6cfc024db2b0434aa78ac2d756fed2482d4ac81fe";
   // Deployed on Render, not cPanel - see backend/README (cPanel's outbound connection
   // to MongoDB Atlas is blocked). For local bank-connection/deep-link testing against
   // real Yodlee, point this at http://localhost:8787 instead (see bank-connection-plan.md).
