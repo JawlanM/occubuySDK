@@ -8,7 +8,7 @@ export default function DocsPage() {
           <h1 className="text-3xl font-semibold tracking-tight">Occubuy Score API</h1>
           <p className="mt-3 text-[#5B6472] leading-relaxed">
             Everything a partner backend needs to create a renter score, hand off to
-            FastLink, and receive the result — connect your platform to Occubuy without
+            FastLink, and receive the result, then connect your platform to Occubuy without
             touching the scoring model itself.
           </p>
         </header>
@@ -17,10 +17,9 @@ export default function DocsPage() {
         <section className="mb-14">
           <h2 className="text-xl font-semibold mb-2">Authentication</h2>
           <p className="text-[#5B6472] leading-relaxed mb-6">
-            Two credentials, two jobs. Your partner key identifies your platform and is
+            We're using two credentials, our partner key identifies your platform and is
             safe to embed in your own page source. Your session token proves a specific
-            request is allowed to touch one specific score — it's minted per score, not
-            reused.
+            request is allowed to touch one specific score.
           </p>
 
           <ol className="space-y-4">
@@ -35,7 +34,7 @@ export default function DocsPage() {
               },
               {
                 title: "Use the session token for everything after",
-                body: "Send it as X-Occubuy-Session on every call for that score — completing the bank connection, polling, sharing, or declining.",
+                body: "Send it as X-Occubuy-Session on every call for that score, completing the bank connection, polling, sharing, or declining.",
               },
             ].map((step, i) => (
               <li key={step.title} className="flex gap-4">
@@ -126,7 +125,7 @@ export default function DocsPage() {
               method="POST"
               path="/api/scores/{scoreId}/decline"
               auth="X-Occubuy-Session: <sessionToken>"
-              description="The renter declines to share. Permanent — a declined score can't later be shared."
+              description="The renter declines to share causes a permanent change, a declined score can't later be shared."
               response={`{ "status": "declined" }`}
             />
           </div>
@@ -142,7 +141,7 @@ export default function DocsPage() {
                   ["PARTNER_KEY_INVALID", "Missing or unrecognised partner key."],
                   ["SESSION_INVALID", "Session token missing, wrong, or expired."],
                   ["AUTH_REQUIRED", "Neither credential was valid for this request."],
-                  ["SCORE_NOT_FOUND", "No score with this id — or one you're not allowed to see."],
+                  ["SCORE_NOT_FOUND", "No score with this id or one you're not allowed to see."],
                   ["INVALID_COMPLETE_PAYLOAD", "Missing providerAccountId, requestId, or status."],
                   ["INVALID_SCORE_STATE", "This action doesn't apply to the score's current status."],
                   ["NOT_SHARED", "The renter hasn't shared this score with you yet."],
