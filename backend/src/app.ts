@@ -3,6 +3,7 @@ import { scoresRouter } from "./routes/scores.routes";
 import { fastlinkRouter } from "./routes/fastlink.routes";
 import { partnerRouter } from "./routes/partner.routes";
 import { internalRouter } from "./routes/internal.routes";
+import { rentersRouter } from "./routes/renters.routes";
 
 export const app = express();
 
@@ -54,3 +55,7 @@ app.use("/api", scoresRouter);
 app.use(fastlinkRouter);
 app.use(partnerRouter);
 app.use("/api/internal", internalRouter);
+app.use("/api", scoresRouter);
+app.use("/api", rentersRouter);
+app.use(fastlinkRouter);
+app.use(partnerRouter);
