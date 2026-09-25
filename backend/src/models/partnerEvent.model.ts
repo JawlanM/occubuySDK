@@ -7,7 +7,8 @@ export type PartnerEventType =
   | "score.declined"
   | "score.portal_sync_failed"
   | "auth.partner_key_invalid"
-  | "auth.session_invalid";
+  | "auth.session_invalid"
+  | "auth.origin_rejected";
 
 export interface IPartnerEvent {
   _id: string;

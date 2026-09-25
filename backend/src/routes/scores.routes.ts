@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import {
   requirePartnerAuth,
+  requireAllowedOrigin,
   requireSessionAuth,
   verifySessionToken,
   authenticatePartnerKey,
@@ -54,7 +55,7 @@ async function buildFastLinkSession(req: Request): Promise<YodleeFastLinkSession
 }
 
 
-scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Response) => {
+scoresRouter.post("/scores", requirePartnerAuth, requireAllowedOrigin, async (req: Request, res: Response) => {
   const { userId, applicant } = req.body ?? {};
 
   if (!userId || typeof userId !== "string") {

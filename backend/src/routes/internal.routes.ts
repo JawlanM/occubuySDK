@@ -4,6 +4,7 @@ import { internalSecret } from "../config/portalClient";
 import { findOne, insertOne, updateById } from "../config/dataApi";
 import { PARTNER_COLLECTION } from "../models/partner.model";
 import { hashSecret } from "../utils/crypto";
+import { normalizeOriginList } from "../utils/origins";
 
 // Not partner-facing - only the portal (occubuy-integration-main) calls this, gated by the
 // same shared secret used the other way (middleware/auth.ts's old portal verify-key call).
@@ -39,16 +40,30 @@ interface PartnerSyncRecord {
 // fullKey is only sent once, right when the portal generates/rotates it (same "shown once"
 // model the portal itself uses with the partner) - a status-only sync just omits it.
 internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
-  const { portalPartnerId, fullKey, status, category } = req.body as {
+  const { portalPartnerId, fullKey, status, category, allowedOrigins } = req.body as {
     portalPartnerId?: string;
     fullKey?: string;
     status?: string;
     category?: string;
+    allowedOrigins?: unknown;
   };
 
   if (typeof portalPartnerId !== "string" || !portalPartnerId) {
     res.status(400).json({ message: "portalPartnerId is required" });
     return;
+  }
+
+  // optional - left out = don't touch what's stored (older portal builds don't send it),
+  // [] = partner cleared their list. anything malformed is rejected outright rather than
+  // half-stored, since a bad entry here decides which websites a key works on.
+  let origins: string[] | undefined;
+  if (allowedOrigins !== undefined) {
+    const normalized = normalizeOriginList(allowedOrigins);
+    if (!normalized) {
+      res.status(400).json({ message: "allowedOrigins must be a list of http(s) origins, e.g. https://example.com" });
+      return;
+    }
+    origins = normalized;
   }
 
   const existing = await findOne<PartnerSyncRecord>(PARTNER_COLLECTION, { portalPartnerId });
@@ -65,6 +80,7 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
   if (status) update.status = status;
   else if (!existing) update.status = "approved"; // first sync, no status given - safe default
   if (category) update.category = category;
+  if (origins) update.allowedOrigins = origins;
 
   if (typeof fullKey === "string" && fullKey) {
     const lastUnderscore = fullKey.lastIndexOf("_");

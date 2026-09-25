@@ -4,6 +4,7 @@ import { PARTNER_COLLECTION } from "../models/partner.model";
 import { findById, findOne } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
 import { logEvent } from "../utils/auditLog";
+import { isLocalDevOrigin } from "../utils/origins";
 
 // What the portal's verify-key endpoint actually gives us back - not the full IPartner
 // shape (legalName, abn, branding, etc.), since the portal's own Partner schema doesn't
@@ -13,6 +14,8 @@ export interface VerifiedPartner {
   _id: string;
   category: string | undefined;
   status: string | undefined;
+  // websites this partner's widget may run on (portal-managed, synced) - empty = not set up yet
+  allowedOrigins: string[];
 }
 
 declare global {
@@ -52,6 +55,7 @@ interface LocalPartnerRecord {
   apiKeyHash?: string;
   category?: string;
   status?: string;
+  allowedOrigins?: string[];
 }
 
 // statuses the portal uses for a partner that's been switched off (admin suspend/pause/
@@ -81,7 +85,12 @@ export async function authenticatePartnerKey(req: Request): Promise<VerifiedPart
     return null;
   }
 
-  return { _id: partner.portalPartnerId, category: partner.category, status: partner.status };
+  return {
+    _id: partner.portalPartnerId,
+    category: partner.category,
+    status: partner.status,
+    allowedOrigins: Array.isArray(partner.allowedOrigins) ? partner.allowedOrigins : [],
+  };
 }
 
 // checks the partner's key, basically the same idea as a stripe publishable key - fine to
@@ -98,6 +107,38 @@ export async function requirePartnerAuth(req: Request, res: Response, next: Next
   //attach that partners info onto that request if successfull then call next
   req.partner = partner;
   next();
+}
+
+// Domain binding (dev plan 1.7): the key is public (it's in the partner's page source), so on
+// its own it only says WHO is calling, not from WHERE. This checks the browser's Origin header
+// against the websites the partner registered in the portal, so a key copied onto someone
+// else's site gets a 403 instead of starting flows that land as this partner's leads.
+// Browsers set Origin themselves and page JS can't change it. Non-browser callers can fake it,
+// but they can't put the flow in front of a real renter, so that's not what this is for.
+//
+// Only on POST /scores - everything after that needs the score's own session token anyway.
+// Lets through: no Origin header (not a browser), a partner with no list yet (sandbox
+// partners who haven't registered a domain, so nothing that works today breaks), and
+// localhost on sandbox keys so partners can test locally.
+export function requireAllowedOrigin(req: Request, res: Response, next: NextFunction): void {
+  const origin = req.headers.origin;
+  const partner = req.partner;
+  if (!origin || !partner || partner.allowedOrigins.length === 0) {
+    next();
+    return;
+  }
+
+  const isSandboxKey = extractBearer(req)?.startsWith("pk_sandbox_") ?? false;
+  if (partner.allowedOrigins.includes(origin) || (isSandboxKey && isLocalDevOrigin(origin))) {
+    next();
+    return;
+  }
+
+  logEvent("auth.origin_rejected", { partnerId: partner._id, detail: { route: req.path, origin } });
+  res.status(403).json({
+    message: "This API key isn't allowed on this website. Add the site in the Occubuy partner portal.",
+    code: "ORIGIN_NOT_ALLOWED",
+  });
 }
 
 // checks the per-flow token (X-Occubuy-Session header) matches this exact scoreId and

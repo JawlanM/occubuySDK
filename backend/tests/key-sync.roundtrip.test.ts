@@ -13,8 +13,12 @@ type Doc = Record<string, unknown> & { _id: string };
 const store = new Map<string, Doc[]>();
 let nextId = 1;
 
+// equality, plus Mongo's "array field contains value" rule (CORS looks up allowedOrigins that way)
 function matches(doc: Doc, filter: Record<string, unknown>): boolean {
-  return Object.entries(filter).every(([key, value]) => doc[key] === value);
+  return Object.entries(filter).every(([key, value]) => {
+    const field = doc[key];
+    return Array.isArray(field) ? field.includes(value) : field === value;
+  });
 }
 
 vi.mock("../src/config/dataApi", async () => {
@@ -39,7 +43,7 @@ vi.mock("../src/config/dataApi", async () => {
   };
 });
 
-import { app } from "../src/app";
+import { app, clearPartnerOriginCache } from "../src/app";
 
 const SECRET = "test-internal-secret";
 const REAL_SECRET = process.env.OCCUBUY_INTERNAL_SECRET;
@@ -54,9 +58,10 @@ function sync(body: Record<string, unknown>, secret = SECRET) {
   return request(app).post("/api/internal/partners/sync").set("X-Internal-Secret", secret).send(body);
 }
 
-function createScore(key: string) {
-  return request(app)
-    .post("/api/scores")
+function createScore(key: string, origin?: string) {
+  const req = request(app).post("/api/scores");
+  if (origin) req.set("Origin", origin);
+  return req
     .set("Authorization", `Bearer ${key}`)
     .send({
       userId: "renter-1",
@@ -74,6 +79,7 @@ beforeEach(() => {
   process.env.OCCUBUY_INTERNAL_SECRET = SECRET;
   store.clear();
   nextId = 1;
+  clearPartnerOriginCache();
 });
 
 afterAll(() => {
@@ -140,5 +146,84 @@ describe("portal key generation -> sync -> the key works here", () => {
     expect((await sync({ portalPartnerId, fullKey: portalKey() }, "wrong-secret")).status).toBe(401);
 
     expect((await createScore(key)).status).toBe(201);
+  });
+});
+
+// dev plan 1.7 - the key only works from the websites the partner registered in the portal
+describe("domain binding (allowedOrigins)", () => {
+  const partnerSite = "https://jmrealestate.com.au";
+
+  it("works from a registered website, 403 from anywhere else", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    expect((await createScore(key, partnerSite)).status).toBe(201);
+
+    const copied = await createScore(key, "https://copycat.example");
+    expect(copied.status).toBe(403);
+    expect(copied.body.code).toBe("ORIGIN_NOT_ALLOWED");
+    expect(copied.body.scoreId).toBeUndefined();
+    expect(store.get("userscores") ?? []).toHaveLength(1);
+
+    // logged under the partner whose key got copied, so they can see it
+    const rejected = (store.get("partnerEvents") ?? []).find((e) => e.eventType === "auth.origin_rejected");
+    expect(rejected?.partnerId).toBe(portalPartnerId);
+  });
+
+  it("partner with no list yet works from anywhere (nothing that works today breaks)", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+
+    expect((await createScore(key, "https://anywhere.example")).status).toBe(201);
+  });
+
+  it("localhost always works on a sandbox key, for local testing", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    expect((await createScore(key, "http://localhost:5500")).status).toBe(201);
+    expect((await createScore(key, "http://127.0.0.1:8787")).status).toBe(201);
+  });
+
+  it("no Origin header (not a browser) isn't blocked by this check", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    expect((await createScore(key)).status).toBe(201);
+  });
+
+  it("a status-only sync without allowedOrigins keeps the stored list; [] clears it", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    await sync({ portalPartnerId, status: "live" });
+    expect((await createScore(key, "https://copycat.example")).status).toBe(403);
+
+    await sync({ portalPartnerId, status: "live", allowedOrigins: [] });
+    expect((await createScore(key, "https://copycat.example")).status).toBe(201);
+  });
+
+  it("normalises what the portal sends and rejects junk without storing any of it", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: ["https://JMRealestate.com.au/"] });
+    expect((await createScore(key, partnerSite)).status).toBe(201);
+
+    for (const bad of [["not a url"], ["ftp://jmrealestate.com.au"], ["https://jmrealestate.com.au/apply"], "https://x.com"]) {
+      const res = await sync({ portalPartnerId, status: "live", allowedOrigins: bad });
+      expect(res.status).toBe(400);
+    }
+    // still the good list from before
+    expect((await createScore(key, "https://copycat.example")).status).toBe(403);
+  });
+
+  it("CORS lets a registered partner website through, not an unknown one", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    const ok = await request(app).options("/api/scores").set("Origin", partnerSite);
+    expect(ok.headers["access-control-allow-origin"]).toBe(partnerSite);
+
+    const unknown = await request(app).options("/api/scores").set("Origin", "https://copycat.example");
+    expect(unknown.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
