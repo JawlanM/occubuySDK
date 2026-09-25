@@ -98,6 +98,7 @@ let portalLeadPushCalls: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.LEAD_PUSH_RETRY_DELAYS_MS = "0,0"; // retries without waiting 1s/5s
   // Routes call insertOne for audit logging too; give it a resolved default.
   vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
   vi.mocked(dataApi.updateById).mockResolvedValue(undefined);
@@ -247,6 +248,37 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
       score: 812,
       band: "Excellent",
     });
+  });
+
+  it("marks the score once the portal has the lead", async () => {
+    await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(dataApi.updateById).toHaveBeenCalledWith(
+      "userscores",
+      shareScoreId,
+      expect.objectContaining({ leadPushedAt: expect.any(String) }),
+    );
+  });
+
+  it("retries a failed push twice more, then logs it and leaves the score unmarked", async () => {
+    portalLeadPushShouldFail = true;
+
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(portalLeadPushCalls).toHaveLength(3);
+    const marked = vi.mocked(dataApi.updateById).mock.calls.some(([, , update]) => "leadPushedAt" in update);
+    expect(marked).toBe(false);
+    const failedEvent = vi.mocked(dataApi.insertOne).mock.calls.find(([, doc]) => doc.eventType === "score.portal_sync_failed");
+    expect(failedEvent?.[1]).toMatchObject({ scoreId: shareScoreId, detail: { attempts: 3 } });
   });
 
   it("still returns the customer's score normally even if the portal push fails", async () => {

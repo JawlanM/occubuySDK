@@ -13,7 +13,7 @@ import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
 import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
-import { pushLeadToPortal } from "../config/portalClient";
+import { pushLeadWithRetry } from "../services/leadPush";
 
 export const scoresRouter = Router();
 
@@ -89,6 +89,7 @@ scoresRouter.post("/scores", requirePartnerAuth, requireAllowedOrigin, async (re
     sessionTokenExpiresAt,
     sharedAt: null,
     declinedAt: null,
+    leadPushedAt: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -241,20 +242,14 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
     sharedAt = new Date().toISOString();
     await updateById(USERSCORE_COLLECTION, scoreId, { sharedAt, updatedAt: new Date().toISOString() });
     logEvent("score.shared", { partnerId: scoreDoc.partnerId, scoreId });
+  }
 
-    // Best-effort - the portal (occubuy-integration-main) catches this as a "lead" so it
-    // shows up in the partner's own dashboard (integration-memory.md Phase 3). Must never
-    // affect the response below: the customer already has their result either way, and a
-    // retried push is safe since the portal upserts on scoreId.
-    pushLeadToPortal({
-      partnerId: scoreDoc.partnerId,
-      scoreId,
-      score: scoreDoc.score.value,
-      band: scoreDoc.score.band,
-      verifiedAt: sharedAt,
-    }).catch(() => {
-      logEvent("score.portal_sync_failed", { partnerId: scoreDoc.partnerId, scoreId });
-    });
+  // The portal catches this as a "lead" for the partner's dashboard. Fire-and-forget with a
+  // few retries (services/leadPush.ts) - never affects the response below, the customer
+  // already has their result either way. Also re-pushes if /share gets called again for a
+  // score the portal never confirmed; the portal upserts on scoreId so that's harmless.
+  if (!scoreDoc.leadPushedAt) {
+    pushLeadWithRetry({ ...scoreDoc, sharedAt }).catch(() => undefined);
   }
 
   return res.status(200).json({

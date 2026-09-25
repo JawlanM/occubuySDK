@@ -30,6 +30,8 @@ export interface PortalLeadPayload {
 export async function pushLeadToPortal(payload: PortalLeadPayload): Promise<void> {
   const res = await fetch(`${portalBaseUrl()}/api/internal/leads`, {
     method: "POST",
+    // a hung portal shouldn't hold the retry loop (services/leadPush.ts) open forever
+    signal: AbortSignal.timeout(5000),
     headers: {
       "Content-Type": "application/json",
       "X-Internal-Secret": internalSecret(),

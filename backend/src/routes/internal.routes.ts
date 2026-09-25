@@ -5,6 +5,7 @@ import { findOne, insertOne, updateById } from "../config/dataApi";
 import { PARTNER_COLLECTION } from "../models/partner.model";
 import { hashSecret } from "../utils/crypto";
 import { normalizeOriginList } from "../utils/origins";
+import { retryPendingLeadPushes } from "../services/leadPush";
 
 // Not partner-facing - only the portal (occubuy-integration-main) calls this, gated by the
 // same shared secret used the other way (middleware/auth.ts's old portal verify-key call).
@@ -99,4 +100,10 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
   }
 
   res.status(200).json({ ok: true });
+});
+
+// Re-pushes every shared score the portal never confirmed as a lead (e.g. the portal was down
+// when the renter shared). Safe to call any time - the portal upserts on scoreId.
+internalRouter.post("/leads/retry", async (_req: Request, res: Response) => {
+  res.status(200).json(await retryPendingLeadPushes());
 });

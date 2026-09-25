@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test-connection": "tsx src/test-connection.ts",
     "seed:partner": "tsx src/scripts/create-partner.ts",
+    "leads:retry": "tsx src/scripts/retry-lead-pushes.ts",
     "test": "vitest run"
   },
   "keywords": [],

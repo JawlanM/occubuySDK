@@ -40,6 +40,10 @@ export interface IUserScore {
   sessionTokenExpiresAt: string;
   sharedAt?: string | null;
   declinedAt?: string | null;
+  // when the portal confirmed it has this shared score as a lead (services/leadPush.ts);
+  // null/missing on a shared score = not there yet, the retry sweep picks it up
+  leadPushedAt?: string | null;
+  leadPushSweepId?: string;
   createdAt?: string;
   updatedAt?: string;
 }
