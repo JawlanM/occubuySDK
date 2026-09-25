@@ -13,7 +13,8 @@ export type PartnerEventType =
   | "otp.rate_limited"
   | "otp.verified"
   | "otp.verify_failed"
-  | "otp.locked";
+  | "otp.locked"
+  | "partner.key_revoked";
 
 export interface IPartnerEvent {
   _id: string;

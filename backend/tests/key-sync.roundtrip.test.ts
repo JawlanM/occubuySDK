@@ -227,3 +227,55 @@ describe("domain binding (allowedOrigins)", () => {
     expect(unknown.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
+
+// "Revoke key" in the portal (dev plan P4)
+describe("revoking a key", () => {
+  it("the key stops working straight away, and a new key works after", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+    expect((await createScore(key)).status).toBe(201);
+
+    expect((await sync({ portalPartnerId, status: "live", revokeKey: true })).status).toBe(200);
+    expect((await createScore(key)).status).toBe(401);
+    const [partner] = store.get("partners") ?? [];
+    expect(partner?.apiKeyHash).toBeNull();
+    expect((store.get("partnerEvents") ?? []).some((e) => e.eventType === "partner.key_revoked")).toBe(true);
+
+    const newKey = portalKey();
+    await sync({ portalPartnerId, fullKey: newKey, status: "live" });
+    expect((await createScore(newKey)).status).toBe(201);
+    expect((await createScore(key)).status).toBe(401);
+  });
+
+  it("keeps the partner's other settings (websites, status)", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: ["https://jmrealestate.com.au"] });
+    await sync({ portalPartnerId, status: "live", revokeKey: true });
+
+    const [partner] = store.get("partners") ?? [];
+    expect(partner?.allowedOrigins).toEqual(["https://jmrealestate.com.au"]);
+    expect(partner?.status).toBe("live");
+  });
+
+  it("revoking for a partner we never had is fine (nothing to revoke)", async () => {
+    expect((await sync({ portalPartnerId: "never-synced", status: "live", revokeKey: true })).status).toBe(200);
+    expect(store.get("partners") ?? []).toHaveLength(0);
+  });
+
+  it("refuses a revoke that also carries a new key, or revokeKey that isn't true", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+
+    expect((await sync({ portalPartnerId, fullKey: portalKey(), revokeKey: true })).status).toBe(400);
+    expect((await sync({ portalPartnerId, revokeKey: "yes" })).status).toBe(400);
+    expect((await createScore(key)).status).toBe(201);
+  });
+
+  it("needs the internal secret", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+    expect((await sync({ portalPartnerId, revokeKey: true }, "wrong-secret")).status).toBe(401);
+    expect((await createScore(key)).status).toBe(201);
+  });
+});
+

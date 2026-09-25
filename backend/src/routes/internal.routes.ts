@@ -6,6 +6,7 @@ import { PARTNER_COLLECTION } from "../models/partner.model";
 import { hashSecret } from "../utils/crypto";
 import { normalizeOriginList } from "../utils/origins";
 import { retryPendingLeadPushes } from "../services/leadPush";
+import { logEvent } from "../utils/auditLog";
 
 // Not partner-facing - only the portal (occubuy-integration-main) calls this, gated by the
 // same shared secret used the other way (middleware/auth.ts's old portal verify-key call).
@@ -41,12 +42,13 @@ interface PartnerSyncRecord {
 // fullKey is only sent once, right when the portal generates/rotates it (same "shown once"
 // model the portal itself uses with the partner) - a status-only sync just omits it.
 internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
-  const { portalPartnerId, fullKey, status, category, allowedOrigins } = req.body as {
+  const { portalPartnerId, fullKey, status, category, allowedOrigins, revokeKey } = req.body as {
     portalPartnerId?: string;
     fullKey?: string;
     status?: string;
     category?: string;
     allowedOrigins?: unknown;
+    revokeKey?: unknown;
   };
 
   if (typeof portalPartnerId !== "string" || !portalPartnerId) {
@@ -67,7 +69,24 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
     origins = normalized;
   }
 
+  // "Revoke key" in the portal: drop the stored key so the next call with it gets 401. The
+  // portal waits for this before clearing its own copy, so a revoke can't silently not happen.
+  if (revokeKey !== undefined && revokeKey !== true) {
+    res.status(400).json({ message: "revokeKey must be true when sent" });
+    return;
+  }
+  if (revokeKey === true && fullKey) {
+    res.status(400).json({ message: "send either fullKey or revokeKey, not both" });
+    return;
+  }
+
   const existing = await findOne<PartnerSyncRecord>(PARTNER_COLLECTION, { portalPartnerId });
+
+  if (revokeKey === true && !existing) {
+    // never had a key here, so there's nothing that could still work
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // the real partners collection still has a unique index on partnerId from the old
   // create-partner.ts seed script - a synced record has no human-readable partnerId of its
@@ -82,6 +101,12 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
   else if (!existing) update.status = "approved"; // first sync, no status given - safe default
   if (category) update.category = category;
   if (origins) update.allowedOrigins = origins;
+
+  if (revokeKey === true) {
+    update.apiKeyPrefix = null;
+    update.apiKeyHash = null;
+    logEvent("partner.key_revoked", { partnerId: portalPartnerId });
+  }
 
   if (typeof fullKey === "string" && fullKey) {
     const lastUnderscore = fullKey.lastIndexOf("_");
