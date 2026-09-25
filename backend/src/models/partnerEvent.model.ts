@@ -8,7 +8,12 @@ export type PartnerEventType =
   | "score.portal_sync_failed"
   | "auth.partner_key_invalid"
   | "auth.session_invalid"
-  | "auth.origin_rejected";
+  | "auth.origin_rejected"
+  | "otp.sent"
+  | "otp.rate_limited"
+  | "otp.verified"
+  | "otp.verify_failed"
+  | "otp.locked";
 
 export interface IPartnerEvent {
   _id: string;

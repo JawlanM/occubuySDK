@@ -1,38 +1,52 @@
 import { Router, Request, Response } from "express";
 import { sendOtp, verifyOtp } from "../services/otp.service";
+import { requireAllowedOrigin, requirePartnerAuth } from "../middleware/auth";
+import { normalizeAuMobile } from "../utils/phone";
 
 export const rentersRouter = Router();
 
-const E164_RE = /^\+[1-9]\d{6,14}$/;
+// Both need a real partner key (and the partner's allowed-website check), same as starting
+// a score: only a partner's widget should be able to make us send texts.
+const partnerOnly = [requirePartnerAuth, requireAllowedOrigin];
 
-rentersRouter.post("/renters/send-otp", async (req: Request, res: Response) => {
-  const { phone } = req.body ?? {};
+const INVALID_PHONE = {
+  message: "Enter a valid Australian mobile number, e.g. 04XX XXX XXX.",
+  code: "INVALID_PHONE",
+};
 
-  if (typeof phone !== "string" || !E164_RE.test(phone)) {
-    return res.status(400).json({
-      message: "phone must be in E.164 format, e.g. +61400000000",
-      code: "INVALID_PHONE",
+rentersRouter.post("/renters/send-otp", ...partnerOnly, async (req: Request, res: Response) => {
+  const phone = normalizeAuMobile(req.body?.phone);
+  if (!phone) return res.status(400).json(INVALID_PHONE);
+
+  const result = await sendOtp(phone, req.partner!._id);
+  if (!result.ok) {
+    res.setHeader("Retry-After", String(result.retryAfterSeconds));
+    return res.status(429).json({
+      message: "Too many codes sent to this number. Please wait before asking for another.",
+      code: "OTP_RATE_LIMITED",
+      retryAfterSeconds: result.retryAfterSeconds,
     });
   }
-
-  await sendOtp(phone);
 
   return res.status(200).json({ status: "sent" });
 });
 
-rentersRouter.post("/renters/verify-otp", async (req: Request, res: Response) => {
-  const { phone, code } = req.body ?? {};
-
-  if (typeof phone !== "string" || typeof code !== "string") {
-    return res.status(400).json({
-      message: "phone and code are required",
-      code: "INVALID_VERIFY_PAYLOAD",
-    });
+rentersRouter.post("/renters/verify-otp", ...partnerOnly, async (req: Request, res: Response) => {
+  const phone = normalizeAuMobile(req.body?.phone);
+  const code = req.body?.code;
+  if (!phone) return res.status(400).json(INVALID_PHONE);
+  if (typeof code !== "string" || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ message: "Enter the 6-digit code.", code: "INVALID_VERIFY_PAYLOAD" });
   }
 
-  const result = await verifyOtp(phone, code);
-
-  if (!result) {
+  const result = await verifyOtp(phone, code, req.partner!._id);
+  if (!result.ok) {
+    if (result.reason === "too_many_attempts") {
+      return res.status(429).json({
+        message: "Too many wrong codes. Ask for a new code.",
+        code: "OTP_TOO_MANY_ATTEMPTS",
+      });
+    }
     return res.status(401).json({
       message: "Code is invalid, expired, or already used",
       code: "OTP_INVALID",

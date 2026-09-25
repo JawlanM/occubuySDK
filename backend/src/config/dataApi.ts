@@ -90,6 +90,25 @@ export async function insertOne(
   return id;
 }
 
+// Raw updateOne: any filter + any update operators ($inc, $set...), applied atomically by Mongo.
+// Use this when "check and change" has to be one step, e.g. only bump a counter while it's
+// still under a limit - matchedCount 0 means the condition didn't hold (or nothing matched).
+// An _id in the filter is passed as a plain id string and converted here.
+export async function updateOne(
+  collection: string,
+  filter: Record<string, unknown>,
+  update: Record<string, unknown>
+): Promise<{ matchedCount: number; modifiedCount: number }> {
+  const { _id, ...rest } = filter;
+  const resolved = typeof _id === "string" ? { ...rest, _id: oidFilter(_id) } : filter;
+  const result = await callDataApi<{ matchedCount?: number; modifiedCount?: number }>("updateOne", {
+    collection,
+    filter: resolved,
+    update,
+  });
+  return { matchedCount: result.matchedCount ?? 0, modifiedCount: result.modifiedCount ?? 0 };
+}
+
 export async function updateById(
   collection: string,
   id: string,
