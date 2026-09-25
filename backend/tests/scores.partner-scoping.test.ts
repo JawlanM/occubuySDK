@@ -97,6 +97,7 @@ let portalLeadPushShouldFail = false;
 let portalLeadPushCalls: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
+  vi.clearAllMocks();
   // Routes call insertOne for audit logging too; give it a resolved default.
   vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
   vi.mocked(dataApi.updateById).mockResolvedValue(undefined);
@@ -161,10 +162,50 @@ describe("GET /api/scores/:scoreId - partner scoping", () => {
   });
 });
 
+// Jansen's test: partner B's key + partner A's session token + A's scoreId. Session token is
+// valid, key is valid, they just don't belong together - has to be a 404 with no score in it.
+describe("session-token routes - partner scoping", () => {
+  const routes = ["share", "decline", "complete"] as const;
+
+  for (const route of routes) {
+    it(`blocks another partner's key on POST /${route} even with a valid session token`, async () => {
+      const res = await request(app)
+        .post(`/api/scores/${shareScoreId}/${route}`)
+        .set("Authorization", `Bearer ${keyB.fullKey}`)
+        .set("X-Occubuy-Session", shareSessionToken.token);
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("SCORE_NOT_FOUND");
+      expect(res.body.score).toBeUndefined();
+      expect(dataApi.updateById).not.toHaveBeenCalled();
+    });
+
+    it(`rejects POST /${route} with a valid session token but no partner key`, async () => {
+      const res = await request(app)
+        .post(`/api/scores/${shareScoreId}/${route}`)
+        .set("X-Occubuy-Session", shareSessionToken.token);
+
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe("PARTNER_KEY_INVALID");
+      expect(dataApi.updateById).not.toHaveBeenCalled();
+    });
+  }
+
+  it("rejects the owning partner's key with no session token", async () => {
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("SESSION_INVALID");
+  });
+});
+
 describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
   it("pushes the shared score to the portal as a lead", async () => {
     const res = await request(app)
       .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
       .set("X-Occubuy-Session", shareSessionToken.token);
 
     expect(res.status).toBe(200);
@@ -186,6 +227,7 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
 
     const res = await request(app)
       .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
       .set("X-Occubuy-Session", shareSessionToken.token);
 
     expect(res.status).toBe(200);

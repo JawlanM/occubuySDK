@@ -47,7 +47,7 @@ async function buildFastLinkSession(req: Request): Promise<YodleeFastLinkSession
   return {
     fastlinkUrl: `${req.protocol}://${req.get("host")}/fastlink`,
     accessToken: "mock-access-token",
-    configName: "Verification",
+    configName: "Aggregation",
     expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // Yodlee's token lifetime
     transport: "postMessage",
   };

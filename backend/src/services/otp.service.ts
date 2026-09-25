@@ -1,7 +1,7 @@
 import { findOne, insertOne, updateById } from "../config/dataApi";
 import { hashSecret, secretMatchesHash } from "../utils/crypto";
 import { IOtpVerification, OTP_VERIFICATION_COLLECTION } from "../models/otpVerification.model";
-import { IRenter, RENTER_COLLECTION } from "../models/renter.model";
+import { IRenter, RENTER_COLLECTION } from "../models/Renter.model";
 
 const OTP_TTL_MS = 5 * 60 * 1000; // 5 minutes
 

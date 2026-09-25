@@ -52,10 +52,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use(express.json());
 
 app.use("/api", scoresRouter);
-app.use(fastlinkRouter);
-app.use(partnerRouter);
-app.use("/api/internal", internalRouter);
-app.use("/api", scoresRouter);
 app.use("/api", rentersRouter);
+app.use("/api/internal", internalRouter);
 app.use(fastlinkRouter);
 app.use(partnerRouter);

@@ -108,15 +108,35 @@ function sessionHeader(req: Request): string | undefined {
   return typeof header === "string" ? header : undefined;
 }
 
+// session token alone isn't enough - it also has to come with the partner key of the
+// partner that owns this score. before this, /share /complete /decline never read the
+// Authorization header at all, so partner B's key (or no key) + partner A's session token
+// got A's score back (found by Jansen, same gap the GET /scores/:scoreId fix closed on 29 Aug).
+// 404 not 403 on a partner mismatch so we don't confirm the score exists for someone else.
 export function requireSessionAuth(req: Request, res: Response, next: NextFunction): void {
   const { scoreId } = req.params as { scoreId: string };
-  verifySessionToken(scoreId, sessionHeader(req))
-    .then((ok) => {
-      if (!ok) {
+  Promise.all([verifySessionToken(scoreId, sessionHeader(req)), authenticatePartnerKey(req)])
+    .then(async ([sessionOk, partner]) => {
+      if (!sessionOk) {
         logEvent("auth.session_invalid", { scoreId, detail: { route: req.path } });
         res.status(401).json({ message: "Invalid or missing session token", code: "SESSION_INVALID" });
         return;
       }
+      if (!partner) {
+        res.status(401).json({ message: "Missing or invalid partner API key", code: "PARTNER_KEY_INVALID" });
+        return;
+      }
+      const scoreDoc = await findById<{ partnerId: string }>(USERSCORE_COLLECTION, scoreId);
+      if (!scoreDoc || scoreDoc.partnerId !== partner._id) {
+        logEvent("auth.session_invalid", {
+          partnerId: partner._id,
+          scoreId,
+          detail: { route: req.path, reason: "partner_mismatch" },
+        });
+        res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
+        return;
+      }
+      req.partner = partner;
       next();
     })
     .catch(next);
