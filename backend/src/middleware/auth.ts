@@ -54,6 +54,12 @@ interface LocalPartnerRecord {
   status?: string;
 }
 
+// statuses the portal uses for a partner that's been switched off (admin suspend/pause/
+// archive, or rejected). the portal pushes status changes here via /partners/sync, this
+// is what actually makes them stop the key. draft/pending_review stay allowed on purpose -
+// the portal hands out sandbox keys before approval and partners test with them.
+const INACTIVE_PARTNER_STATUSES = new Set(["paused", "suspended", "archived", "rejected"]);
+
 export async function authenticatePartnerKey(req: Request): Promise<VerifiedPartner | null> {
   const key = extractBearer(req);
   if (!key) return null;
@@ -64,6 +70,14 @@ export async function authenticatePartnerKey(req: Request): Promise<VerifiedPart
   const partner = await findOne<LocalPartnerRecord>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
   if (!partner?.apiKeyHash || !secretMatchesHash(key, partner.apiKeyHash)) {
     logEvent("auth.partner_key_invalid", { detail: { route: req.path, reason: "no_local_match" } });
+    return null;
+  }
+
+  if (partner.status && INACTIVE_PARTNER_STATUSES.has(partner.status)) {
+    logEvent("auth.partner_key_invalid", {
+      partnerId: partner.portalPartnerId,
+      detail: { route: req.path, reason: "partner_inactive", status: partner.status },
+    });
     return null;
   }
 
