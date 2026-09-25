@@ -63,8 +63,9 @@ export interface OccubuyInitConfig {
   /** Optional colour overrides - see OccubuyBranding. Everything else about the layout is fixed. */
   branding?: OccubuyBranding;
   /**
-   * Where the backend actually lives - defaults to localhost:8787 for local dev. Set this
-   * to the real deployed backend URL once it's up on cPanel, e.g. "https://api.occubuy.example".
+   * Where the backend lives. The hosted script (sdk/v1/occubuy-sdk.js) already defaults to the
+   * deployed backend, so partners leave this out. The dist/ builds default to localhost:8787
+   * for local dev.
    */
   apiBase?: string;
   environment?: OccubuyEnvironment;
@@ -88,9 +89,12 @@ type ResolvedConfig = OccubuyInitConfig & {
   onError: (error: OccubuyErrorResult) => void;
 };
 
-// Local dev default; override via config.apiBase for a real backend. One origin serves
-// both the score API and the fake FastLink page.
-const DEFAULT_API_BASE = "http://localhost:8787";
+// Baked in at build time for the hosted script partners embed (see tsup.config.ts), so their
+// snippet doesn't need apiBase. Every other build (dist/, tests) falls back to local dev.
+// One origin serves both the score API and the fake FastLink page.
+declare const __OCCUBUY_DEFAULT_API_BASE__: string | undefined;
+const DEFAULT_API_BASE =
+  typeof __OCCUBUY_DEFAULT_API_BASE__ === "string" ? __OCCUBUY_DEFAULT_API_BASE__ : "http://localhost:8787";
 const SESSION_HEADER = "X-Occubuy-Session";
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
