@@ -21,6 +21,7 @@ export interface PortalLeadPayload {
   score: number;
   band: string;
   verifiedAt: string;
+  renter?: { fullName: string; email: string; phone: string };
 }
 
 // Fire-and-forget from the caller's point of view (POST /scores/:id/share) - this rejects

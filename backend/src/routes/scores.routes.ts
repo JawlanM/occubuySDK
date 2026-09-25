@@ -14,22 +14,16 @@ import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi
 import { logEvent } from "../utils/auditLog";
 import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
 import { pushLeadWithRetry } from "../services/leadPush";
+import { scoreBand, type ScoreBand } from "../utils/band";
 
 export const scoresRouter = Router();
 
 const SESSION_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour - long enough for a real flow, short enough to bound a leak
 
-type ScoreBand = NonNullable<IUserScore["score"]>["band"];
-
+// Real scoring isn't this team's job (decided 26 Sep) - Occubuy swaps their scorer in here.
 function mockGenerateScore(): { value: number; band: ScoreBand } {
   const value = Math.floor(Math.random() * 1001);
-  let band: ScoreBand;
-  if (value >= 800) band = "Excellent";
-  else if (value >= 600) band = "Good";
-  else if (value >= 400) band = "Fair";
-  else if (value >= 200) band = "Poor";
-  else band = "Insufficient Data";
-  return { value, band };
+  return { value, band: scoreBand(value) };
 }
 
 // BANK_PROVIDER=yodlee (and every YODLEE_* var set) mints a real sandbox FastLink session.
@@ -208,8 +202,10 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     logEvent("score.completed", { partnerId: scoreDoc.partnerId, scoreId, detail: { band } });
   }
 
-  if (scoreDoc.status === "COMPLETED") {
-    return res.status(200).json({ status: "COMPLETED", score: scoreDoc.score });
+  if (scoreDoc.status === "COMPLETED" && scoreDoc.score) {
+    // band always recomputed, so scores stored under the old band names read the same as new ones
+    const { value } = scoreDoc.score;
+    return res.status(200).json({ status: "COMPLETED", score: { value, band: scoreBand(value) } });
   }
 
   // status === "FAILED"
@@ -254,7 +250,7 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
 
   return res.status(200).json({
     score: scoreDoc.score.value,
-    band: scoreDoc.score.band,
+    band: scoreBand(scoreDoc.score.value),
     verifiedAt: new Date(sharedAt).toISOString(),
     reference: scoreDoc._id,
   });

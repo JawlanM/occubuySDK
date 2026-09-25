@@ -99,7 +99,8 @@ const SESSION_HEADER = "X-Occubuy-Session";
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
 
-// TODO: check with Nishad what the real score band cutoffs should be, this is just a guess for now.
+// The band names are final (decided 26 Sep). The backend's utils/band.ts uses the same cutoffs,
+// so the widget, onComplete, GET /scores/:id and the portal all agree. Change both together.
 function scoreToBand(score: number): OccubuyScoreResult["band"] {
   if (score >= 700) return "strong";
   if (score >= 400) return "moderate";

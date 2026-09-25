@@ -3,6 +3,7 @@ import { findOne, updateById } from "../config/dataApi";
 import { pushLeadToPortal } from "../config/portalClient";
 import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import { logEvent } from "../utils/auditLog";
+import { scoreBand } from "../utils/band";
 
 // Getting a shared score into the portal as a lead (dev plan 2.2). Before this, /share fired
 // one push and if the portal was down the lead was just gone - the renter thinks they shared,
@@ -14,7 +15,8 @@ import { logEvent } from "../utils/auditLog";
 // The portal upserts leads on scoreId, so pushing the same one twice is harmless.
 // None of this ever affects the renter's /share response.
 
-type ShareableScore = Pick<IUserScore, "_id" | "partnerId" | "score" | "sharedAt">;
+type ShareableScore = Pick<IUserScore, "_id" | "partnerId" | "score" | "sharedAt"> &
+  Partial<Pick<IUserScore, "applicant">>;
 
 // retries after the first attempt; override with LEAD_PUSH_RETRY_DELAYS_MS="0,0" in tests
 function retryDelays(): number[] {
@@ -35,8 +37,19 @@ export async function pushLeadWithRetry(scoreDoc: ShareableScore, delays: number
     partnerId: scoreDoc.partnerId,
     scoreId: scoreDoc._id,
     score: scoreDoc.score.value,
-    band: scoreDoc.score.band,
+    band: scoreBand(scoreDoc.score.value),
     verifiedAt: new Date(scoreDoc.sharedAt).toISOString(),
+    // who shared it, for the partner's Shared scores tab. These came from the partner's own
+    // application form (passed into the widget), so nothing the partner didn't already have.
+    ...(scoreDoc.applicant
+      ? {
+          renter: {
+            fullName: scoreDoc.applicant.fullName,
+            email: scoreDoc.applicant.email,
+            phone: scoreDoc.applicant.phone,
+          },
+        }
+      : {}),
   };
 
   for (let attempt = 0; attempt <= delays.length; attempt++) {
