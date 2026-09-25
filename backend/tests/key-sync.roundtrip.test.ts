@@ -279,3 +279,57 @@ describe("revoking a key", () => {
   });
 });
 
+// Widget colours set in the portal (dev plan P5), read back by the widget
+describe("widget colours", () => {
+  const config = (key: string) => request(app).get("/partners/config").set("Authorization", `Bearer ${key}`);
+
+  it("colours synced from the portal come back from /partners/config", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", branding: { primaryColor: "#FF6B3D", headingColor: "#35205e" } });
+
+    const res = await config(key);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ branding: { primaryColor: "#ff6b3d", headingColor: "#35205e" } });
+    expect(res.headers["cache-control"]).toBe("private, max-age=60");
+  });
+
+  it("nothing set = empty branding (the widget keeps Occubuy's colours)", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+    expect((await config(key)).body).toEqual({ branding: {} });
+  });
+
+  it("a status-only sync keeps the colours; {} resets them", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", branding: { primaryColor: "#123456" } });
+
+    await sync({ portalPartnerId, status: "live" });
+    expect((await config(key)).body.branding).toEqual({ primaryColor: "#123456" });
+
+    await sync({ portalPartnerId, status: "live", branding: {} });
+    expect((await config(key)).body.branding).toEqual({});
+  });
+
+  it("refuses anything that isn't a hex colour, and keeps what was there", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", branding: { primaryColor: "#123456" } });
+
+    for (const bad of [
+      { primaryColor: "red" },
+      { primaryColor: "#12345" },
+      { primaryColor: "url(javascript:alert(1))" },
+      { primaryColor: "#123456; background: red" },
+      { fontFamily: "Comic Sans" },
+      "#123456",
+    ]) {
+      expect((await sync({ portalPartnerId, status: "live", branding: bad })).status).toBe(400);
+    }
+    expect((await config(key)).body.branding).toEqual({ primaryColor: "#123456" });
+  });
+
+  it("needs a valid key", async () => {
+    expect((await request(app).get("/partners/config")).status).toBe(401);
+    expect((await config(portalKey())).status).toBe(401);
+  });
+});
+

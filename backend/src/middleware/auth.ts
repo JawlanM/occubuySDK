@@ -5,6 +5,7 @@ import { findById, findOne } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
 import { logEvent } from "../utils/auditLog";
 import { isLocalDevOrigin } from "../utils/origins";
+import type { WidgetBranding } from "../utils/branding";
 
 // What the portal's verify-key endpoint actually gives us back - not the full IPartner
 // shape (legalName, abn, branding, etc.), since the portal's own Partner schema doesn't
@@ -16,6 +17,8 @@ export interface VerifiedPartner {
   status: string | undefined;
   // websites this partner's widget may run on (portal-managed, synced) - empty = not set up yet
   allowedOrigins: string[];
+  // widget colours set in the portal ({} = Occubuy's own)
+  branding: WidgetBranding;
 }
 
 declare global {
@@ -56,6 +59,7 @@ interface LocalPartnerRecord {
   category?: string;
   status?: string;
   allowedOrigins?: string[];
+  branding?: WidgetBranding;
 }
 
 // statuses the portal uses for a partner that's been switched off (admin suspend/pause/
@@ -90,6 +94,7 @@ export async function authenticatePartnerKey(req: Request): Promise<VerifiedPart
     category: partner.category,
     status: partner.status,
     allowedOrigins: Array.isArray(partner.allowedOrigins) ? partner.allowedOrigins : [],
+    branding: partner.branding && typeof partner.branding === "object" ? partner.branding : {},
   };
 }
 

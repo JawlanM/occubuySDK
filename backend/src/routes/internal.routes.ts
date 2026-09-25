@@ -5,6 +5,7 @@ import { findOne, insertOne, updateById } from "../config/dataApi";
 import { PARTNER_COLLECTION } from "../models/partner.model";
 import { hashSecret } from "../utils/crypto";
 import { normalizeOriginList } from "../utils/origins";
+import { normalizeBranding, type WidgetBranding } from "../utils/branding";
 import { retryPendingLeadPushes } from "../services/leadPush";
 import { logEvent } from "../utils/auditLog";
 
@@ -42,13 +43,14 @@ interface PartnerSyncRecord {
 // fullKey is only sent once, right when the portal generates/rotates it (same "shown once"
 // model the portal itself uses with the partner) - a status-only sync just omits it.
 internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
-  const { portalPartnerId, fullKey, status, category, allowedOrigins, revokeKey } = req.body as {
+  const { portalPartnerId, fullKey, status, category, allowedOrigins, revokeKey, branding } = req.body as {
     portalPartnerId?: string;
     fullKey?: string;
     status?: string;
     category?: string;
     allowedOrigins?: unknown;
     revokeKey?: unknown;
+    branding?: unknown;
   };
 
   if (typeof portalPartnerId !== "string" || !portalPartnerId) {
@@ -67,6 +69,17 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
       return;
     }
     origins = normalized;
+  }
+
+  // widget colours from the portal: left out = keep what's stored, {} = back to Occubuy's colours
+  let colours: WidgetBranding | undefined;
+  if (branding !== undefined) {
+    const normalized = normalizeBranding(branding);
+    if (!normalized) {
+      res.status(400).json({ message: "branding colours must be hex, e.g. #ff6b3d" });
+      return;
+    }
+    colours = normalized;
   }
 
   // "Revoke key" in the portal: drop the stored key so the next call with it gets 401. The
@@ -101,6 +114,7 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
   else if (!existing) update.status = "approved"; // first sync, no status given - safe default
   if (category) update.category = category;
   if (origins) update.allowedOrigins = origins;
+  if (colours) update.branding = colours;
 
   if (revokeKey === true) {
     update.apiKeyPrefix = null;

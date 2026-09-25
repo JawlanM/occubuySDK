@@ -482,7 +482,82 @@ describe("OccubuyScore.init", () => {
     container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "INVALID_APPLICANT" }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    // the only call allowed is the colour lookup on start(), which carries no applicant data
+    const urls = fetchMock.mock.calls.map((call) => String((call as unknown[])[0]));
+    expect(urls.filter((url) => !url.endsWith("/partners/config"))).toEqual([]);
+  });
+
+  describe("colours set in the partner portal", () => {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    function stubConfig(response: Promise<Response>) {
+      const fetchMock = vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/partners/config") ? response : Promise.reject(new Error(`Unexpected fetch: ${String(input)}`))
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    it("applies them once they arrive, without holding up the first screen", async () => {
+      const container = makeContainer();
+      const fetchMock = stubConfig(Promise.resolve(jsonResponse({ branding: { primaryColor: "#ff6b3d", headingColor: "#35205e" } })));
+
+      init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+      // consent screen is already there before the colours come back
+      expect(container.querySelector("[data-occubuy-consent-checkbox]")).not.toBeNull();
+      expect(container.style.getPropertyValue("--occubuy-accent")).toBe("");
+
+      await flush();
+      expect(container.style.getPropertyValue("--occubuy-accent")).toBe("#ff6b3d");
+      expect(container.style.getPropertyValue("--occubuy-heading")).toBe("#35205e");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8787/partners/config",
+        expect.objectContaining({ headers: { Authorization: "Bearer pk_sandbox_test" } })
+      );
+    });
+
+    it("colours passed to init() win over the portal's", async () => {
+      const container = makeContainer();
+      stubConfig(Promise.resolve(jsonResponse({ branding: { primaryColor: "#ff6b3d", headingColor: "#35205e" } })));
+
+      init({
+        apiKey: "pk_sandbox_test",
+        container: "#occubuy-widget",
+        applicant: VALID_APPLICANT,
+        branding: { primaryColor: "#000000" },
+      }).start();
+      await flush();
+
+      expect(container.style.getPropertyValue("--occubuy-accent")).toBe("#000000");
+      expect(container.style.getPropertyValue("--occubuy-heading")).toBe("#35205e");
+    });
+
+    it("ignores anything that isn't a hex colour", async () => {
+      const container = makeContainer();
+      stubConfig(Promise.resolve(jsonResponse({ branding: { primaryColor: "red; background:url(x)", headingColor: "#35205e" } })));
+
+      init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+      await flush();
+
+      expect(container.style.getPropertyValue("--occubuy-accent")).toBe("");
+      expect(container.style.getPropertyValue("--occubuy-heading")).toBe("#35205e");
+    });
+
+    it("a failed or refused lookup keeps the default colours and nothing breaks", async () => {
+      for (const response of [Promise.reject(new Error("network down")), Promise.resolve(jsonResponse({ message: "no" }, false, 401))]) {
+        document.body.innerHTML = "";
+        const container = makeContainer();
+        stubConfig(response);
+        const onError = vi.fn();
+
+        init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onError }).start();
+        await flush();
+
+        expect(container.style.getPropertyValue("--occubuy-accent")).toBe("");
+        expect(container.querySelector("[data-occubuy-consent-checkbox]")).not.toBeNull();
+        expect(onError).not.toHaveBeenCalled();
+      }
+    });
   });
 
   it("ignores FastLink messages from an untrusted origin", async () => {
