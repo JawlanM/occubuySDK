@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import {
   requirePartnerAuth,
+  requireAllowedOrigin,
   requireSessionAuth,
   verifySessionToken,
   authenticatePartnerKey,
@@ -12,23 +13,17 @@ import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
 import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
-import { pushLeadToPortal } from "../config/portalClient";
+import { pushLeadWithRetry } from "../services/leadPush";
+import { scoreBand, type ScoreBand } from "../utils/band";
 
 export const scoresRouter = Router();
 
 const SESSION_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour - long enough for a real flow, short enough to bound a leak
 
-type ScoreBand = NonNullable<IUserScore["score"]>["band"];
-
+// Real scoring isn't this team's job (decided 26 Sep) - Occubuy swaps their scorer in here.
 function mockGenerateScore(): { value: number; band: ScoreBand } {
   const value = Math.floor(Math.random() * 1001);
-  let band: ScoreBand;
-  if (value >= 800) band = "Excellent";
-  else if (value >= 600) band = "Good";
-  else if (value >= 400) band = "Fair";
-  else if (value >= 200) band = "Poor";
-  else band = "Insufficient Data";
-  return { value, band };
+  return { value, band: scoreBand(value) };
 }
 
 // BANK_PROVIDER=yodlee (and every YODLEE_* var set) mints a real sandbox FastLink session.
@@ -47,14 +42,14 @@ async function buildFastLinkSession(req: Request): Promise<YodleeFastLinkSession
   return {
     fastlinkUrl: `${req.protocol}://${req.get("host")}/fastlink`,
     accessToken: "mock-access-token",
-    configName: "Verification",
+    configName: "Aggregation",
     expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // Yodlee's token lifetime
     transport: "postMessage",
   };
 }
 
 
-scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Response) => {
+scoresRouter.post("/scores", requirePartnerAuth, requireAllowedOrigin, async (req: Request, res: Response) => {
   const { userId, applicant } = req.body ?? {};
 
   if (!userId || typeof userId !== "string") {
@@ -88,6 +83,7 @@ scoresRouter.post("/scores", requirePartnerAuth, async (req: Request, res: Respo
     sessionTokenExpiresAt,
     sharedAt: null,
     declinedAt: null,
+    leadPushedAt: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -206,8 +202,10 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     logEvent("score.completed", { partnerId: scoreDoc.partnerId, scoreId, detail: { band } });
   }
 
-  if (scoreDoc.status === "COMPLETED") {
-    return res.status(200).json({ status: "COMPLETED", score: scoreDoc.score });
+  if (scoreDoc.status === "COMPLETED" && scoreDoc.score) {
+    // band always recomputed, so scores stored under the old band names read the same as new ones
+    const { value } = scoreDoc.score;
+    return res.status(200).json({ status: "COMPLETED", score: { value, band: scoreBand(value) } });
   }
 
   // status === "FAILED"
@@ -240,25 +238,19 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
     sharedAt = new Date().toISOString();
     await updateById(USERSCORE_COLLECTION, scoreId, { sharedAt, updatedAt: new Date().toISOString() });
     logEvent("score.shared", { partnerId: scoreDoc.partnerId, scoreId });
+  }
 
-    // Best-effort - the portal (occubuy-integration-main) catches this as a "lead" so it
-    // shows up in the partner's own dashboard (integration-memory.md Phase 3). Must never
-    // affect the response below: the customer already has their result either way, and a
-    // retried push is safe since the portal upserts on scoreId.
-    pushLeadToPortal({
-      partnerId: scoreDoc.partnerId,
-      scoreId,
-      score: scoreDoc.score.value,
-      band: scoreDoc.score.band,
-      verifiedAt: sharedAt,
-    }).catch(() => {
-      logEvent("score.portal_sync_failed", { partnerId: scoreDoc.partnerId, scoreId });
-    });
+  // The portal catches this as a "lead" for the partner's dashboard. Fire-and-forget with a
+  // few retries (services/leadPush.ts) - never affects the response below, the customer
+  // already has their result either way. Also re-pushes if /share gets called again for a
+  // score the portal never confirmed; the portal upserts on scoreId so that's harmless.
+  if (!scoreDoc.leadPushedAt) {
+    pushLeadWithRetry({ ...scoreDoc, sharedAt }).catch(() => undefined);
   }
 
   return res.status(200).json({
     score: scoreDoc.score.value,
-    band: scoreDoc.score.band,
+    band: scoreBand(scoreDoc.score.value),
     verifiedAt: new Date(sharedAt).toISOString(),
     reference: scoreDoc._id,
   });

@@ -82,7 +82,7 @@ const unsharedScore: IUserScore = {
   partnerId: partnerA._id,
   applicant: sharedScore.applicant,
   status: "COMPLETED",
-  score: { value: 812, band: "Excellent" },
+  score: { value: 812, band: "Excellent" }, // stored under the old band name on purpose
   sessionTokenHash: shareSessionToken.hash,
   sharedAt: null,
   declinedAt: null,
@@ -97,6 +97,8 @@ let portalLeadPushShouldFail = false;
 let portalLeadPushCalls: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  process.env.LEAD_PUSH_RETRY_DELAYS_MS = "0,0"; // retries without waiting 1s/5s
   // Routes call insertOne for audit logging too; give it a resolved default.
   vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
   vi.mocked(dataApi.updateById).mockResolvedValue(undefined);
@@ -161,10 +163,77 @@ describe("GET /api/scores/:scoreId - partner scoping", () => {
   });
 });
 
+// portal pushes status changes (admin suspend/archive etc) through /partners/sync - once
+// the local copy says the partner is switched off, their key has to stop working
+describe("inactive partners", () => {
+  for (const status of ["paused", "suspended", "archived", "rejected"]) {
+    it(`rejects a ${status} partner's key`, async () => {
+      vi.mocked(dataApi.findOne).mockResolvedValue({ ...partnerA, status } as any);
+
+      const res = await request(app)
+        .get(`/api/scores/${scoreId}`)
+        .set("Authorization", `Bearer ${keyA.fullKey}`);
+
+      expect(res.status).toBe(401);
+      expect(res.body.score).toBeUndefined();
+    });
+  }
+
+  it("still lets a draft partner use their sandbox key", async () => {
+    vi.mocked(dataApi.findOne).mockResolvedValue({ ...partnerA, status: "draft" } as any);
+
+    const res = await request(app)
+      .get(`/api/scores/${scoreId}`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`);
+
+    expect(res.status).toBe(200);
+  });
+});
+
+// Jansen's test: partner B's key + partner A's session token + A's scoreId. Session token is
+// valid, key is valid, they just don't belong together - has to be a 404 with no score in it.
+describe("session-token routes - partner scoping", () => {
+  const routes = ["share", "decline", "complete"] as const;
+
+  for (const route of routes) {
+    it(`blocks another partner's key on POST /${route} even with a valid session token`, async () => {
+      const res = await request(app)
+        .post(`/api/scores/${shareScoreId}/${route}`)
+        .set("Authorization", `Bearer ${keyB.fullKey}`)
+        .set("X-Occubuy-Session", shareSessionToken.token);
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("SCORE_NOT_FOUND");
+      expect(res.body.score).toBeUndefined();
+      expect(dataApi.updateById).not.toHaveBeenCalled();
+    });
+
+    it(`rejects POST /${route} with a valid session token but no partner key`, async () => {
+      const res = await request(app)
+        .post(`/api/scores/${shareScoreId}/${route}`)
+        .set("X-Occubuy-Session", shareSessionToken.token);
+
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe("PARTNER_KEY_INVALID");
+      expect(dataApi.updateById).not.toHaveBeenCalled();
+    });
+  }
+
+  it("rejects the owning partner's key with no session token", async () => {
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe("SESSION_INVALID");
+  });
+});
+
 describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
   it("pushes the shared score to the portal as a lead", async () => {
     const res = await request(app)
       .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
       .set("X-Occubuy-Session", shareSessionToken.token);
 
     expect(res.status).toBe(200);
@@ -177,8 +246,40 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
       partnerId: partnerA._id,
       scoreId: shareScoreId,
       score: 812,
-      band: "Excellent",
+      band: "strong", // recomputed from 812, not the old stored name
+      renter: { fullName: "Test User", email: "user@example.test", phone: "0400000001" },
     });
+  });
+
+  it("marks the score once the portal has the lead", async () => {
+    await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(dataApi.updateById).toHaveBeenCalledWith(
+      "userscores",
+      shareScoreId,
+      expect.objectContaining({ leadPushedAt: expect.any(String) }),
+    );
+  });
+
+  it("retries a failed push twice more, then logs it and leaves the score unmarked", async () => {
+    portalLeadPushShouldFail = true;
+
+    const res = await request(app)
+      .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(portalLeadPushCalls).toHaveLength(3);
+    const marked = vi.mocked(dataApi.updateById).mock.calls.some(([, , update]) => "leadPushedAt" in update);
+    expect(marked).toBe(false);
+    const failedEvent = vi.mocked(dataApi.insertOne).mock.calls.find(([, doc]) => doc.eventType === "score.portal_sync_failed");
+    expect(failedEvent?.[1]).toMatchObject({ scoreId: shareScoreId, detail: { attempts: 3 } });
   });
 
   it("still returns the customer's score normally even if the portal push fails", async () => {
@@ -186,11 +287,12 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
 
     const res = await request(app)
       .post(`/api/scores/${shareScoreId}/share`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
       .set("X-Occubuy-Session", shareSessionToken.token);
 
     expect(res.status).toBe(200);
     expect(res.body.score).toBe(812);
-    expect(res.body.band).toBe("Excellent");
+    expect(res.body.band).toBe("strong");
     expect(res.body.reference).toBe(shareScoreId);
   });
 });

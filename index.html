@@ -223,7 +223,8 @@
 </main>
 
 <!-- Real built SDK, not a mock. -->
-<script src="dist/occubuy-sdk.iife.global.js"></script>
+<!-- the same hosted script partners embed (built to sdk/v1 by tsup, already points at the deployed backend) -->
+<script src="sdk/v1/occubuy-sdk.js"></script>
 <script>
   const consentCheck = document.getElementById("consentCheck");
   const verifyBtn = document.getElementById("verifyBtn");
@@ -251,10 +252,9 @@
   // seed:partner key below stopped working once auth started checking that sync instead of
   // its own local seed data.
   const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_6aa80ac109fb2c1356272958_dd5b3ea6cfc024db2b0434aa78ac2d756fed2482d4ac81fe";
-  // Deployed on Render, not cPanel - see backend/README (cPanel's outbound connection
-  // to MongoDB Atlas is blocked). For local bank-connection/deep-link testing against
-  // real Yodlee, point this at http://localhost:8787 instead (see bank-connection-plan.md).
-  const OCCUBUY_API_BASE = "https://occubuy-backend.onrender.com";
+  // No apiBase: sdk/v1/occubuy-sdk.js already defaults to the deployed backend, which is exactly
+  // the snippet partners get from the portal. For local testing against a local backend use
+  // demo-local.html instead.
 
   applicantForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -271,7 +271,6 @@
 
     const scoreSdk = window.OccubuyScore.init({
       apiKey: OCCUBUY_PARTNER_API_KEY,
-      apiBase: OCCUBUY_API_BASE,
       container: "#occubuy-widget",
       environment: "sandbox",
       applicant: {

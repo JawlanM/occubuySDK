@@ -8,7 +8,9 @@ interface ILinkedAccount {
 
 interface IScoreData {
   value: number;
-  band: "Excellent" | "Good" | "Fair" | "Poor" | "Insufficient Data";
+  // strong | moderate | limited (utils/band.ts). Scores saved before 26 Sep may still hold the
+  // old names (Excellent/Good/...), so anything sending a band out recomputes it from value.
+  band: string;
 }
 
 // comes from the partner's application form, checked again in validators.ts before we
@@ -40,6 +42,10 @@ export interface IUserScore {
   sessionTokenExpiresAt: string;
   sharedAt?: string | null;
   declinedAt?: string | null;
+  // when the portal confirmed it has this shared score as a lead (services/leadPush.ts);
+  // null/missing on a shared score = not there yet, the retry sweep picks it up
+  leadPushedAt?: string | null;
+  leadPushSweepId?: string;
   createdAt?: string;
   updatedAt?: string;
 }

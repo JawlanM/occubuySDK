@@ -63,8 +63,9 @@ export interface OccubuyInitConfig {
   /** Optional colour overrides - see OccubuyBranding. Everything else about the layout is fixed. */
   branding?: OccubuyBranding;
   /**
-   * Where the backend actually lives - defaults to localhost:8787 for local dev. Set this
-   * to the real deployed backend URL once it's up on cPanel, e.g. "https://api.occubuy.example".
+   * Where the backend lives. The hosted script (sdk/v1/occubuy-sdk.js) already defaults to the
+   * deployed backend, so partners leave this out. The dist/ builds default to localhost:8787
+   * for local dev.
    */
   apiBase?: string;
   environment?: OccubuyEnvironment;
@@ -88,14 +89,27 @@ type ResolvedConfig = OccubuyInitConfig & {
   onError: (error: OccubuyErrorResult) => void;
 };
 
-// Local dev default; override via config.apiBase for a real backend. One origin serves
-// both the score API and the fake FastLink page.
-const DEFAULT_API_BASE = "http://localhost:8787";
+// Baked in at build time for the hosted script partners embed (see tsup.config.ts), so their
+// snippet doesn't need apiBase. Every other build (dist/, tests) falls back to local dev.
+// One origin serves both the score API and the fake FastLink page.
+declare const __OCCUBUY_DEFAULT_API_BASE__: string | undefined;
+const DEFAULT_API_BASE =
+  typeof __OCCUBUY_DEFAULT_API_BASE__ === "string" ? __OCCUBUY_DEFAULT_API_BASE__ : "http://localhost:8787";
 const SESSION_HEADER = "X-Occubuy-Session";
+
+// OccubuyBranding field -> the CSS variable the widget's styles read
+const BRANDING_CSS_VARS: Array<[keyof OccubuyBranding, string]> = [
+  ["primaryColor", "--occubuy-accent"],
+  ["primaryColorDark", "--occubuy-accent-dark"],
+  ["headingColor", "--occubuy-heading"],
+];
+// portal colours are checked again here since they end up as CSS on the partner's page
+const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
 
-// TODO: check with Nishad what the real score band cutoffs should be, this is just a guess for now.
+// The band names are final (decided 26 Sep). The backend's utils/band.ts uses the same cutoffs,
+// so the widget, onComplete, GET /scores/:id and the portal all agree. Change both together.
 function scoreToBand(score: number): OccubuyScoreResult["band"] {
   if (score >= 700) return "strong";
   if (score >= 400) return "moderate";
@@ -444,15 +458,33 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
 
     // Sets custom properties on the container itself, not its innerHTML - survives every
     // later containerEl.innerHTML = ... swap between screens.
-    if (resolved.branding?.primaryColor) {
-      containerEl.style.setProperty("--occubuy-accent", resolved.branding.primaryColor);
+    for (const [field, cssVar] of BRANDING_CSS_VARS) {
+      const colour = resolved.branding?.[field];
+      if (colour) containerEl.style.setProperty(cssVar, colour);
     }
-    if (resolved.branding?.primaryColorDark) {
-      containerEl.style.setProperty("--occubuy-accent-dark", resolved.branding.primaryColorDark);
-    }
-    if (resolved.branding?.headingColor) {
-      containerEl.style.setProperty("--occubuy-heading", resolved.branding.headingColor);
-    }
+
+    // Colours the partner set in the portal. Never waited on: the widget is already drawing with
+    // its defaults, these get applied if and when they arrive. Colours passed to init() win.
+    // Any failure (network, bad key, old backend, timeout) just leaves the defaults.
+    fetch(`${apiBase}/partners/config`, {
+      headers: { Authorization: `Bearer ${resolved.apiKey}` },
+      ...(typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? { signal: AbortSignal.timeout(3000) }
+        : {}),
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<{ branding?: Record<string, unknown> }>) : null))
+      .then((config) => {
+        if (!config?.branding || cancelled) return;
+        for (const [field, cssVar] of BRANDING_CSS_VARS) {
+          const colour = config.branding[field];
+          if (!resolved.branding?.[field] && typeof colour === "string" && HEX_COLOUR.test(colour)) {
+            containerEl.style.setProperty(cssVar, colour);
+          }
+        }
+      })
+      .catch(() => {
+        /* keep the default colours */
+      });
 
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
