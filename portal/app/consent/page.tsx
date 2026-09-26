@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function ConsentPage() {
   return (
     <main
@@ -17,8 +19,19 @@ export default function ConsentPage() {
             Consent & Data
           </h1>
           <p className="mt-3 leading-relaxed" style={{ color: "var(--text-body)" }}>
-            What a renter sees, what a partner can and can't access, and exactly when
-            each becomes true.
+            The policy framing behind the consent flow, and what's still genuinely
+            unresolved. For the mechanics themselves, what each screen shows, exactly
+            what{" "}
+            <code className="font-mono text-xs">/share</code> and{" "}
+            <code className="font-mono text-xs">/decline</code> do — see{" "}
+            <Link href="/flow" className="underline" style={{ color: "var(--brand-ink)" }}>
+              SDK Flow
+            </Link>{" "}
+            and{" "}
+            <Link href="/docs" className="underline" style={{ color: "var(--brand-ink)" }}>
+              API Reference
+            </Link>
+            .
           </p>
         </header>
 
@@ -34,111 +47,53 @@ export default function ConsentPage() {
             Nothing crosses to a partner without an explicit renter action. A completed
             score is visible to the renter the moment it's ready, it is not visible to
             the partner until the renter actively chooses to share it. This is enforced
-            at the API level.
+            at the API level: a partner's key only ever returns a result once the
+            renter has shared, and ownership is checked unconditionally, so a partner
+            can't even confirm a score exists for someone else's renter.
           </p>
         </section>
 
-        {/* Before consent */}
+        {/* Revocation & retention - confirmed policy, but out of this project's surface */}
         <section className="mb-14">
           <h2
             className="text-xl mb-3"
             style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
           >
-            Before consent
-          </h2>
-          <ul className="space-y-2 text-sm leading-relaxed" style={{ color: "var(--text-body)" }}>
-            <li>
-              <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                Applicant data:{" "}
-              </span>
-              collected entirely by the partner's own form, before the widget ever
-              renders. We never collect this ourselves, it's passed into{" "}
-              <code className="font-mono text-xs">init()</code>.
-            </li>
-            <li>
-              <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", fontWeight: 600 }}>
-                The consent screen:{" "}
-              </span>
-              the first thing rendered is not a score request. We own the wording; a
-              partner can restyle colours but cannot edit the text. An explicit
-              legal-consent checkbox has to be ticked before "Verify" even enables.
-              Nothing hits our API before this point.
-            </li>
-          </ul>
-        </section>
-
-        {/* At consent */}
-        <section className="mb-14">
-          <h2
-            className="text-xl mb-3"
-            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
-          >
-            Seeing the result, then deciding
+            Revocation & retention
           </h2>
           <p className="leading-relaxed mb-4" style={{ color: "var(--text-body)" }}>
-            The renter sees their own completed score first. Sharing it with the
-            partner is a separate, never automatic.
+            Confirmed policy: a renter has up to <strong>12 months</strong> after
+            sharing to revoke access or delete their score.
           </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div
-              className="rounded-lg border p-4"
-              style={{ borderColor: "var(--border-default)", background: "var(--surface-card)" }}
-            >
-              <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, color: "var(--success)" }}>
-                Share
-              </p>
-              <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
-                Returns the score, band, timestamp, and a reference to the partner.
-                Best-effort push to the partner's own portal as a lead, if that push
-                fails, it never affects what the renter sees.
-              </p>
-            </div>
-            <div
-              className="rounded-lg border p-4"
-              style={{ borderColor: "var(--border-default)", background: "var(--surface-card)" }}
-            >
-              <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, color: "var(--danger)" }}>
-                Decline
-              </p>
-              <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
-                Even if the request fails, the renter
-                still sees it go through locally. Declining never surfaces as an error
-                to them. Permanent: once declined, sharing is locked out for that score
-                for good.
-              </p>
-            </div>
+          <div
+            className="rounded-md border px-4 py-3 text-sm leading-relaxed"
+            style={{
+              borderColor: "var(--border-default)",
+              background: "var(--surface-card)",
+              color: "var(--text-body)",
+            }}
+          >
+            <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", fontWeight: 600 }}>
+              Out of scope for this SDK/backend:{" "}
+            </span>
+            revocation itself is performed through the Occubuy mobile app, not through
+            any endpoint documented here. This team's web SDK and backend have no way
+            to trigger, receive, or test a revocation, there is nothing to build or
+            verify on this side of the integration for it.
           </div>
         </section>
 
-        {/* What partners can see */}
-        <section className="mb-14">
-          <h2
-            className="text-xl mb-3"
-            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
-          >
-            What a partner can actually access
-          </h2>
-          <p className="leading-relaxed" style={{ color: "var(--text-body)" }}>
-            A partner's key only ever returns a result once the renter has shared,
-            attempting to read a score before that returns "not shared," not the data
-            itself. Ownership is checked unconditionally: if a score doesn't belong to
-            the partner asking, the response is a plain 404, not a 403. So a partner
-            can't even confirm a score exists for someone else's renter, let alone read it.
-          </p>
-        </section>
-
-        {/* Open questions - honest */}
+        {/* Open questions - honest, the actual reason this page exists */}
         <section>
           <h2
             className="text-xl mb-3"
             style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
           >
-            Open questions, not yet built
+            Open questions — not yet specified
           </h2>
           <div className="space-y-3">
             {[
-              "Revocation after sharing: once a score has been shared and the partner has it, there is currently no way for a renter to withdraw that access later. No endpoint exists for this today, it's an open design question, not an implemented feature.",
-              "Data retention: how long a renter's score or bank-connection data is kept has not been specified. Nothing currently expires or auto-deletes this data.",
+              "What happens at the 12-month mark itself: does the score/data get automatically deleted once the window closes, or does only the right to revoke expire while the data otherwise persists? Not yet specified either way.",
             ].map((note) => (
               <div
                 key={note}
