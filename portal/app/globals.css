@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Occubuy Design System v3
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* neutral spine */
+  --n50: #FEF6F0;
+  --n100: #F7EBE7;
+  --n200: #EBDBDA;
+  --n300: #D6C2C5;
+  --n400: #8F7880;
+  --n500: #6C5359;
+  --n900: #1F1719;
+
+  /* brand */
+  --accent: #F87954;
+  --accent-hover: #E86A46;
+  --accent-subtle: #FDEAE2;
+  --brand-ink: #C24A2A; /* darker than the source's literal value - see note above */
+
+  /* surfaces */
+  --bg-app: var(--n50);
+  --surface-card: #FFFFFF;
+  --surface-sunken: var(--n100);
+
+  /* borders */
+  --border-subtle: var(--n200);
+  --border-default: var(--n200);
+  --border-strong: var(--n300);
+
+  /* text */
+  --text-primary: var(--n900);
+  --text-body: var(--n500);
+  --text-muted: var(--n400);
+
+  /* status */
+  --success: #1F6B52;
+  --warning: #7A5200;
+  --danger: #A3271F;
+
+  /* radius */
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --accent-hover: #FA8C6B;
+    --accent-subtle: #33211C;
+    --brand-ink: var(--accent);
+    --bg-app: #1A1416;
+    --surface-card: #241C1E;
+    --surface-sunken: #302428;
+    --border-subtle: #3D2F33;
+    --border-default: #3D2F33;
+    --border-strong: #4A393E;
+    --text-primary: #FEF6F0;
+    --text-body: #C9B5BA;
+    --text-muted: #A9929A;
+    --success: #6FD3AF;
+    --warning: #F0C267;
+    --danger: #FFB4A8;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
