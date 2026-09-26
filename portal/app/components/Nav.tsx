@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/docs", label: "API Reference" },
   { href: "/flow", label: "SDK Flow" },
+  { href: "/consent", label: "Consent & Data" },
 ];
 
 export default function Nav() {

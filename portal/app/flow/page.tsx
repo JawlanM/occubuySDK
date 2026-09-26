@@ -70,7 +70,7 @@ export default function FlowPage() {
                         {[
                             {
                                 title: "Consent screen",
-                                body: "The first thing renders is not a score request. We own the wording; you can restyle colours but not edit the text. A legal-consent checkbox must be ticked before \"Verify\" even enables. Nothing hits our API before this.",
+                                body: "The first thing renders is not a score request.",
                             },
                             {
                                 title: "POST /api/scores",
