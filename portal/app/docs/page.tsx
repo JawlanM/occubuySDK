@@ -1,25 +1,41 @@
 export default function DocsPage() {
   return (
-    <main className="min-h-screen bg-[#F7F8FA] text-[#10151F]">
+    <main
+      className="min-h-screen"
+      style={{ background: "var(--bg-app)", color: "var(--text-primary)" }}
+    >
       <div className="mx-auto max-w-[760px] px-6 py-16">
         {/* Header */}
         <header className="mb-14">
-          <div className="mb-4 h-2 w-8 rounded-full bg-[#0F62FE]" />
-          <h1 className="text-3xl font-semibold tracking-tight">Occubuy Score API</h1>
-          <p className="mt-3 text-[#5B6472] leading-relaxed">
+          <div
+            className="mb-4 h-2 w-8 rounded-full"
+            style={{ background: "var(--accent)" }}
+          />
+          <h1
+            className="text-3xl tracking-tight"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 700 }}
+          >
+            Occubuy Score API
+          </h1>
+          <p className="mt-3 leading-relaxed" style={{ color: "var(--text-body)" }}>
             Everything a partner backend needs to create a renter score, hand off to
-            FastLink, and receive the result, then connect your platform to Occubuy without
+            FastLink, and receive the result, then it connects your platform to Occubuy without
             touching the scoring model itself.
           </p>
         </header>
 
         {/* Authentication */}
         <section className="mb-14">
-          <h2 className="text-xl font-semibold mb-2">Authentication</h2>
-          <p className="text-[#5B6472] leading-relaxed mb-6">
-            We're using two credentials, our partner key identifies your platform and is
+          <h2
+            className="text-xl mb-2"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+          >
+            Authentication
+          </h2>
+          <p className="leading-relaxed mb-6" style={{ color: "var(--text-body)" }}>
+            Your partner key identifies your platform and is
             safe to embed in your own page source. Your session token proves a specific
-            request is allowed to touch one specific score.
+            request is allowed to touch one specific score
           </p>
 
           <ol className="space-y-4">
@@ -38,12 +54,23 @@ export default function DocsPage() {
               },
             ].map((step, i) => (
               <li key={step.title} className="flex gap-4">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#0F62FE] text-xs font-medium text-white">
+                <span
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs text-white"
+                  style={{
+                    background: "var(--accent)",
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                  }}
+                >
                   {i + 1}
                 </span>
                 <div>
-                  <p className="font-medium">{step.title}</p>
-                  <p className="text-sm text-[#5B6472] leading-relaxed">{step.body}</p>
+                  <p style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>
+                    {step.title}
+                  </p>
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--text-body)" }}>
+                    {step.body}
+                  </p>
                 </div>
               </li>
             ))}
@@ -52,7 +79,12 @@ export default function DocsPage() {
 
         {/* Endpoints */}
         <section className="mb-14">
-          <h2 className="text-xl font-semibold mb-6">Endpoints</h2>
+          <h2
+            className="text-xl mb-6"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+          >
+            Endpoints
+          </h2>
 
           <div className="space-y-8">
             <Endpoint
@@ -125,7 +157,7 @@ export default function DocsPage() {
               method="POST"
               path="/api/scores/{scoreId}/decline"
               auth="X-Occubuy-Session: <sessionToken>"
-              description="The renter declines to share causes a permanent change, a declined score can't later be shared."
+              description="The renter declines to share. Permanent — a declined score can't later be shared."
               response={`{ "status": "declined" }`}
             />
           </div>
@@ -133,25 +165,41 @@ export default function DocsPage() {
 
         {/* Errors */}
         <section>
-          <h2 className="text-xl font-semibold mb-4">Error codes</h2>
-          <div className="overflow-hidden rounded-lg border border-[#E1E4EA]">
+          <h2
+            className="text-xl mb-4"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}
+          >
+            Error codes
+          </h2>
+          <div
+            className="overflow-hidden rounded-lg border"
+            style={{ borderColor: "var(--border-default)" }}
+          >
             <table className="w-full text-sm">
               <tbody>
                 {[
                   ["PARTNER_KEY_INVALID", "Missing or unrecognised partner key."],
                   ["SESSION_INVALID", "Session token missing, wrong, or expired."],
                   ["AUTH_REQUIRED", "Neither credential was valid for this request."],
-                  ["SCORE_NOT_FOUND", "No score with this id or one you're not allowed to see."],
+                  ["SCORE_NOT_FOUND", "No score with this id, or one you're not allowed to see."],
                   ["INVALID_COMPLETE_PAYLOAD", "Missing providerAccountId, requestId, or status."],
                   ["INVALID_SCORE_STATE", "This action doesn't apply to the score's current status."],
                   ["NOT_SHARED", "The renter hasn't shared this score with you yet."],
                   ["ALREADY_DECLINED", "This score was already declined and can't be shared."],
                 ].map(([code, meaning], i) => (
-                  <tr key={code} className={i % 2 ? "bg-[#FBFBFC]" : ""}>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-[#0F62FE]">
+                  <tr
+                    key={code}
+                    style={i % 2 ? { background: "var(--surface-sunken)" } : undefined}
+                  >
+                    <td
+                      className="whitespace-nowrap px-4 py-3 font-mono text-xs"
+                      style={{ color: "var(--danger)" }}
+                    >
                       {code}
                     </td>
-                    <td className="px-4 py-3 text-[#5B6472]">{meaning}</td>
+                    <td className="px-4 py-3" style={{ color: "var(--text-body)" }}>
+                      {meaning}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -178,7 +226,8 @@ function Endpoint({
   request?: string;
   response: string;
 }) {
-  const methodColor = method === "GET" ? "#0F62FE" : "#0E9F6E";
+
+  const methodColor = method === "GET" ? "var(--text-muted)" : "var(--accent)";
 
   return (
     <div className="border-l-2 pl-5" style={{ borderColor: methodColor }}>
@@ -191,23 +240,42 @@ function Endpoint({
         </span>
         <span className="font-mono text-sm">{path}</span>
       </div>
-      <p className="mt-2 text-sm text-[#5B6472] leading-relaxed">{description}</p>
-      <p className="mt-1 text-xs text-[#5B6472]">
-        <span className="font-medium">Auth:</span> {auth}
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-body)" }}>
+        {description}
+      </p>
+      <p className="mt-1 text-xs" style={{ color: "var(--text-body)" }}>
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Auth:</span>{" "}
+        {auth}
       </p>
 
       {request && (
         <div className="mt-3">
-          <p className="mb-1 text-xs font-medium text-[#5B6472]">Request body</p>
-          <pre className="overflow-x-auto rounded-md bg-[#0B1220] p-3 text-xs text-[#D6E4FF]">
+          <p
+            className="mb-1 text-xs"
+            style={{ color: "var(--text-body)", fontFamily: "var(--font-display)", fontWeight: 600 }}
+          >
+            Request body
+          </p>
+          <pre
+            className="overflow-x-auto rounded-md p-3 text-xs"
+            style={{ background: "var(--n900)", color: "var(--n100)" }}
+          >
             {request}
           </pre>
         </div>
       )}
 
       <div className="mt-3">
-        <p className="mb-1 text-xs font-medium text-[#5B6472]">Response</p>
-        <pre className="overflow-x-auto rounded-md bg-[#0B1220] p-3 text-xs text-[#D6E4FF]">
+        <p
+          className="mb-1 text-xs"
+          style={{ color: "var(--text-body)", fontFamily: "var(--font-display)", fontWeight: 600 }}
+        >
+          Response
+        </p>
+        <pre
+          className="overflow-x-auto rounded-md p-3 text-xs"
+          style={{ background: "var(--n900)", color: "var(--n100)" }}
+        >
           {response}
         </pre>
       </div>
