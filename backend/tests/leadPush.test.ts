@@ -52,7 +52,7 @@ function score(id: string, extra: Record<string, unknown> = {}): Doc {
     _id: id,
     partnerId: "p".repeat(24),
     status: "COMPLETED",
-    score: { value: 700, band: "Good" },
+    score: { value: 700, band: "Very Good" },
     sharedAt: "2026-09-26T00:00:00.000Z",
     declinedAt: null,
     ...extra,

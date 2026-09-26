@@ -8,8 +8,8 @@ interface ILinkedAccount {
 
 interface IScoreData {
   value: number;
-  // strong | moderate | limited (utils/band.ts). Scores saved before 26 Sep may still hold the
-  // old names (Excellent/Good/...), so anything sending a band out recomputes it from value.
+  // Excellent | Very Good | Good | Fair | Poor (utils/band.ts). Older scores may still hold earlier
+  // names (strong/moderate/limited), so anything sending a band out recomputes it from value.
   band: string;
 }
 

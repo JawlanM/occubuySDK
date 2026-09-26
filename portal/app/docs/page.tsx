@@ -136,7 +136,7 @@ export default function DocsPage() {
               description="Poll until status is COMPLETED or FAILED. A partner key only returns a result after the renter explicitly shares."
               response={`{
   "status": "COMPLETED",
-  "score": { "value": 742, "band": "Good" }
+  "score": { "value": 742, "band": "Very Good" }
 }`}
             />
 
@@ -147,7 +147,7 @@ export default function DocsPage() {
               description="The renter's explicit consent to hand this score to your platform. Nothing is visible to your partner key before this."
               response={`{
   "score": 742,
-  "band": "Good",
+  "band": "Very Good",
   "verifiedAt": "2026-09-09T12:31:00.000Z",
   "reference": "6a8555cf11410758b44e311a"
 }`}

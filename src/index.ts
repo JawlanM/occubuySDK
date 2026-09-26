@@ -8,7 +8,7 @@ export type OccubuyEnvironment = "sandbox" | "production";
 export interface OccubuyScoreResult {
   status: "success";
   score: number;
-  band: "strong" | "moderate" | "limited";
+  band: "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
   verifiedAt: string;
   /** scoreId, handed back by /share as a confirmation reference - see US D1.3 */
   reference: string;
@@ -108,16 +108,15 @@ const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
 
-// The band names are final (decided 26 Sep). The backend's utils/band.ts uses the same cutoffs,
-// so the widget, onComplete, GET /scores/:id and the portal all agree. Change both together.
+// The partner portal's five band names, 200-point steps (decided 26 Sep). The backend's
+// utils/band.ts uses the same cutoffs, so the widget, onComplete, GET /scores/:id and the portal
+// all agree. Change both together.
 function scoreToBand(score: number): OccubuyScoreResult["band"] {
-  if (score >= 700) return "strong";
-  if (score >= 400) return "moderate";
-  return "limited";
-}
-
-function capitalize(word: string): string {
-  return word.charAt(0).toUpperCase() + word.slice(1);
+  if (score >= 800) return "Excellent";
+  if (score >= 600) return "Very Good";
+  if (score >= 400) return "Good";
+  if (score >= 200) return "Fair";
+  return "Poor";
 }
 
 // Mirrors backend/src/utils/validators.ts so bad input fails fast client-side; backend
@@ -158,12 +157,16 @@ function validateApplicant(applicant: OccubuyApplicant | undefined): string | nu
 // must vary by band, not be one generic sentence.
 function improvementCopy(band: OccubuyScoreResult["band"]): string {
   switch (band) {
-    case "limited":
-      return "Build a longer history of on-time payments and steady income landing in this account - even a few more months of consistent activity moves this the most.";
-    case "moderate":
-      return "Keep income arriving on a predictable schedule and pay down existing debt where you can - consistency over the next few months is what pushes this into Strong.";
-    case "strong":
-      return "This is already a strong score - keep income steady and avoid large new debts to hold it here.";
+    case "Poor":
+      return "Build a longer history of on-time payments and steady income landing in this account. Even a few more months of consistent activity moves this the most.";
+    case "Fair":
+      return "Get regular income paid into this account and keep bills paid on time. A few steady months here is what lifts this into Good.";
+    case "Good":
+      return "Keep income arriving on a predictable schedule and pay down existing debt where you can. Consistency over the next few months is what pushes this into Very Good.";
+    case "Very Good":
+      return "You're close to the top band. Keep income steady, avoid missed payments and hold off on large new debts to reach Excellent.";
+    case "Excellent":
+      return "This is already an excellent score. Keep income steady and avoid large new debts to hold it here.";
   }
 }
 
@@ -310,7 +313,7 @@ function consentTemplate(): string {
     <div class="occubuy-container occubuy-fade-in" data-occubuy-step="consent">
       ${brandHeader()}
       <h2 class="occubuy-heading">Verify your rental score</h2>
-      <p class="occubuy-sub">A strong Occubuy Score can help back up your application - calculated from your real bank transaction history, never a credit check.</p>
+      <p class="occubuy-sub">A strong Occubuy Score can help back up your application. It's calculated from your real bank transaction history, never a credit check.</p>
 
       <div class="occubuy-card">
         <div class="occubuy-card-title">Get started</div>
@@ -334,7 +337,7 @@ function consentTemplate(): string {
 
         <div class="occubuy-disclosure">
           <span class="occubuy-disclosure-icon">&#9432;</span>
-          <span>We never see your online banking login or password - nothing in your account can be moved or changed.</span>
+          <span>We never see your online banking login or password, and nothing in your account can be moved or changed.</span>
         </div>
       </div>
 
@@ -765,7 +768,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       const declineBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-decline]");
 
       if (scoreValueEl) scoreValueEl.textContent = String(roundedScore);
-      if (scoreBandEl) scoreBandEl.textContent = capitalize(band);
+      if (scoreBandEl) scoreBandEl.textContent = band;
       if (improveTextEl) improveTextEl.textContent = improvementCopy(band);
 
       shareBtn?.addEventListener("click", () => {
@@ -775,7 +778,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         if (declineBtn) declineBtn.disabled = true;
 
         // Fires off this response, not the closed-over roundedScore (see renderSuccess).
-        // Backend's band uses a different 5-value scale, so we keep our own.
+        // Band comes from the shared score, same cutoffs as the backend's utils/band.ts.
         fetch(`${apiBase}/api/scores/${encodeURIComponent(scoreId)}/share`, {
           method: "POST",
           headers: authHeaders(),
@@ -786,10 +789,11 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           })
           .then((shared) => {
             cleanup();
+            const sharedScore = typeof shared.score === "number" ? Math.round(shared.score) : roundedScore;
             resolved.onComplete({
               status: "success",
-              score: typeof shared.score === "number" ? Math.round(shared.score) : roundedScore,
-              band,
+              score: sharedScore,
+              band: scoreToBand(sharedScore),
               verifiedAt: shared.verifiedAt ?? verifiedAt,
               reference: shared.reference ?? scoreId,
             });

@@ -67,7 +67,7 @@ const sharedScore: IUserScore = {
     address: "1 Test St",
   },
   status: "COMPLETED",
-  score: { value: 720, band: "Good" },
+  score: { value: 720, band: "Very Good" },
   sessionTokenHash: "not-used-in-this-test",
   sharedAt: new Date().toISOString(),
   declinedAt: null,
@@ -82,7 +82,7 @@ const unsharedScore: IUserScore = {
   partnerId: partnerA._id,
   applicant: sharedScore.applicant,
   status: "COMPLETED",
-  score: { value: 812, band: "Excellent" }, // stored under the old band name on purpose
+  score: { value: 812, band: "strong" }, // stored under an old band name on purpose
   sessionTokenHash: shareSessionToken.hash,
   sharedAt: null,
   declinedAt: null,
@@ -246,7 +246,7 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
       partnerId: partnerA._id,
       scoreId: shareScoreId,
       score: 812,
-      band: "strong", // recomputed from 812, not the old stored name
+      band: "Excellent", // recomputed from 812, not the old stored name
       renter: { fullName: "Test User", email: "user@example.test", phone: "0400000001" },
     });
   });
@@ -292,7 +292,7 @@ describe("POST /api/scores/:scoreId/share - portal lead push (Phase 3)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.score).toBe(812);
-    expect(res.body.band).toBe("strong");
+    expect(res.body.band).toBe("Excellent");
     expect(res.body.reference).toBe(shareScoreId);
   });
 });

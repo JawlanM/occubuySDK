@@ -13,10 +13,10 @@ export type OpenBankingMode = "scoresApi" | "legacyDirect";
 
 export type ScoreBand =
   | "Excellent"
+  | "Very Good"
   | "Good"
   | "Fair"
-  | "Poor"
-  | "Insufficient Data";
+  | "Poor";
 
 export type ScoreStatus = "PROCESSING" | "COMPLETED" | "FAILED";
 

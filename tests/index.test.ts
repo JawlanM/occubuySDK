@@ -178,7 +178,7 @@ describe("OccubuyScore.init", () => {
     });
 
     expect(container.querySelector("[data-occubuy-score-value]")?.textContent).toBe("822");
-    expect(container.querySelector("[data-occubuy-score-band]")?.textContent).toBe("Strong");
+    expect(container.querySelector("[data-occubuy-score-band]")?.textContent).toBe("Excellent");
 
     const shareBtn = container.querySelector<HTMLButtonElement>("[data-occubuy-share]")!;
     shareBtn.click();
@@ -188,7 +188,7 @@ describe("OccubuyScore.init", () => {
         expect.objectContaining({
           status: "success",
           score: 822,
-          band: "strong",
+          band: "Excellent",
           verifiedAt: "2026-08-18T00:00:00.000Z",
           reference: "score_123",
         })
@@ -361,9 +361,11 @@ describe("OccubuyScore.init", () => {
 
   it("shows 'how to improve' copy that's specific to the band the customer landed in", async () => {
     const cases: Array<{ scoreId: string; score: number }> = [
-      { scoreId: "score_low", score: 100 },
-      { scoreId: "score_mid", score: 550 },
-      { scoreId: "score_high", score: 900 },
+      { scoreId: "score_poor", score: 100 },
+      { scoreId: "score_fair", score: 300 },
+      { scoreId: "score_good", score: 550 },
+      { scoreId: "score_very_good", score: 700 },
+      { scoreId: "score_excellent", score: 900 },
     ];
     const improveTextByBand: string[] = [];
 
@@ -430,7 +432,7 @@ describe("OccubuyScore.init", () => {
       vi.unstubAllGlobals();
     }
 
-    expect(new Set(improveTextByBand).size).toBe(3);
+    expect(new Set(improveTextByBand).size).toBe(5);
   });
 
   it("fires onError with a typed code when starting verification fails", async () => {
