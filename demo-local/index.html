@@ -31,7 +31,7 @@
   </div>
 </main>
 
-<script src="dist/occubuy-sdk.iife.global.js"></script>
+<script src="https://occubuy-demo.onrender.com/sdk/v1/occubuy-sdk.js"></script>
 <script>
   const applicantForm = document.getElementById("applicantForm");
   const applicantCard = document.getElementById("applicantCard");
@@ -41,7 +41,7 @@
   // key seeded locally via create-partner.ts - this key was minted for a real "JM
   // Realestate" partner doc via scripts/run-local-demo-portal.ts, same code path as
   // POST /me/api-key. Temporary, for this local demo run only.
-  const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_6aa69355e3a16717ae01fa2a_2eef87e60a198b51547371d79d761b8bc9fec71832d1979f";
+  const OCCUBUY_PARTNER_API_KEY = "pk_sandbox_6ab78f23e021fbf91af61f36_52a37cd66467f5a98413f11635ca34f92ef381594e78f0ea";
   const OCCUBUY_API_BASE = "https://occubuy-backend.onrender.com";
 
   applicantForm.addEventListener("submit", (e) => {
