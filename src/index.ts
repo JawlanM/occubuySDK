@@ -83,6 +83,12 @@ export interface OccubuyInitConfig {
   /** Larger text, dark mode and high contrast defaults - see OccubuyAccessibility. */
   accessibility?: OccubuyAccessibility;
   /**
+   * Tallest the widget gets on your page, as a CSS length (e.g. "560px"). Anything longer
+   * scrolls inside the widget instead of stretching your page. Default: 640px, or the window
+   * height minus 32px if that's smaller.
+   */
+  maxHeight?: string;
+  /**
    * Where the backend lives. The hosted script (sdk/v1/occubuy-sdk.js) already defaults to the
    * deployed backend, so partners leave this out. The dist/ builds default to localhost:8787
    * for local dev.
@@ -247,10 +253,12 @@ const WIDGET_CSS = `
   font: 400 calc(14px*var(--ob-s))/1.6 "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ob-body); background: var(--ob-bg); border: 1px solid var(--ob-line); border-radius: 16px;
   padding: 20px; max-width: 420px; box-sizing: border-box;
+  max-height: var(--occubuy-max-height, min(640px, calc(100vh - 32px))); overflow-y: auto;
+  overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ob-line2) transparent;
   box-shadow: 0 1px 2px rgba(31,23,25,.06), 0 12px 28px -18px rgba(31,23,25,.4);
 }
 .occubuy-container * { box-sizing: border-box; }
-.occubuy-brand { display: flex; align-items: center; gap: 8px; font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 16px; }
+.occubuy-brand { display: flex; align-items: center; gap: 8px; font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); position: sticky; top: -20px; z-index: 2; background: var(--ob-bg); margin: -20px -20px 16px; padding: 20px 20px 8px; }
 .occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ob-acc); flex-shrink: 0; }
 .occubuy-heading { font: 600 calc(20px*var(--ob-s))/1.3 var(--ob-disp); letter-spacing: -.01em; color: var(--ob-head); margin: 0 0 8px; }
 .occubuy-sub { color: var(--ob-body); margin: 0 0 20px; }
@@ -536,6 +544,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       /* defaults only */
     }
     containerEl.classList.toggle("occubuy-no-controls", a11y.showControls === false);
+    // the widget scrolls inside itself past this height (see WIDGET_CSS)
+    if (resolved.maxHeight) containerEl.style.setProperty("--occubuy-max-height", resolved.maxHeight);
     function applyPrefs(): void {
       containerEl.classList.toggle("occubuy-large", prefs.l);
       containerEl.classList.toggle("occubuy-dark", prefs.d);

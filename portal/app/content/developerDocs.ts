@@ -251,6 +251,7 @@ export const sdkFlow = {
     ["applicant", "Required. fullName, email, phone, dob (YYYY-MM-DD) and address, from your own form. Checked with the same rules as the backend before anything is sent."],
     ["branding", "Optional. primaryColor, primaryColorDark, headingColor (hex). Usually you set these in the partner portal instead; values passed here win."],
     ["accessibility", "Optional starting display settings. See Accessibility below."],
+    ["maxHeight", "Optional. How tall the widget gets on your page, as a CSS length such as \"560px\". Longer content scrolls inside the widget, with its header kept in view, instead of stretching your page. Default 640px, or the window height minus 32px if that's smaller."],
     ["onComplete, onDecline, onCancel, onError", "Optional callbacks. See Callbacks below."],
     ["apiBase", "Leave it out. The hosted script already points at the Occubuy backend."],
     ["environment", "\"sandbox\", the only one for now."],

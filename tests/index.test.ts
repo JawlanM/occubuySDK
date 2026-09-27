@@ -1056,3 +1056,24 @@ describe("bank link refused at /complete", () => {
     expect(container.querySelector('[data-occubuy-step="consent"]')).not.toBeNull();
   });
 });
+
+describe("the widget scrolls inside its own box", () => {
+  it("is capped in height and scrolls itself instead of stretching the partner's page", () => {
+    makeContainer();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    const css = document.getElementById("occubuy-style")?.textContent ?? "";
+    expect(css).toMatch(/max-height: var\(--occubuy-max-height, min\(640px, calc\(100vh - 32px\)\)\)/);
+    expect(css).toMatch(/overflow-y: auto/);
+    expect(css).toMatch(/overscroll-behavior: contain/);
+    // the header with the display buttons stays in view while scrolling
+    expect(css).toMatch(/\.occubuy-brand \{[^}]*position: sticky/);
+  });
+
+  it("the partner can set a different height", () => {
+    const container = makeContainer();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, maxHeight: "520px" }).start();
+    expect(container.style.getPropertyValue("--occubuy-max-height")).toBe("520px");
+  });
+});
