@@ -44,6 +44,7 @@ vi.mock("../src/config/dataApi", async () => {
 });
 
 import { app, clearPartnerOriginCache } from "../src/app";
+import * as dataApi from "../src/config/dataApi";
 
 const SECRET = "test-internal-secret";
 const REAL_SECRET = process.env.OCCUBUY_INTERNAL_SECRET;
@@ -248,6 +249,32 @@ describe("domain binding (allowedOrigins)", () => {
     const refused = await createScore(key, "https://copycat.example");
     expect(refused.status).toBe(403);
     expect(refused.headers["access-control-allow-origin"]).toBe("https://copycat.example");
+  });
+});
+
+// B4: partner records are cached between requests, and every sync clears the cache
+describe("partner cache", () => {
+  const partnerSite = "https://jmrealestate.com.au";
+  it("serves repeat requests from the cache, and a status change still applies straight away", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+
+    const reads = () => vi.mocked(dataApi.findOne).mock.calls.filter(([c, f]) => c === "partners" && "apiKeyPrefix" in (f as object)).length;
+    const before = reads();
+    for (let i = 0; i < 3; i++) expect((await createScore(key, partnerSite)).status).toBe(201);
+    expect(reads() - before).toBe(1);
+
+    await sync({ portalPartnerId, status: "suspended" });
+    expect((await createScore(key, partnerSite)).status).toBe(401);
+  });
+
+  it("a removed website stops working straight away", async () => {
+    const key = portalKey();
+    await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
+    expect((await createScore(key, partnerSite)).status).toBe(201);
+
+    await sync({ portalPartnerId, status: "live", allowedOrigins: ["https://other.example"] });
+    expect((await createScore(key, partnerSite)).status).toBe(403);
   });
 });
 

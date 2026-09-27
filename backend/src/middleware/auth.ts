@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from "express";
-import { USERSCORE_COLLECTION } from "../models/Userscore.model";
+import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import { PARTNER_COLLECTION } from "../models/partner.model";
 import { findById, findOne } from "../config/dataApi";
 import { secretMatchesHash } from "../utils/crypto";
 import { logEvent } from "../utils/auditLog";
 import { isLocalDevOrigin } from "../utils/origins";
 import type { WidgetBranding } from "../utils/branding";
+import { onPartnersChanged } from "../utils/partnerCache";
 
 // What the portal's verify-key endpoint actually gives us back - not the full IPartner
 // shape (legalName, abn, branding, etc.), since the portal's own Partner schema doesn't
@@ -26,6 +27,8 @@ declare global {
   namespace Express {
     interface Request {
       partner?: VerifiedPartner;
+      // the score requireSessionAuth already loaded, so the route doesn't read it again
+      scoreDoc?: IUserScore;
     }
   }
 }
@@ -68,6 +71,26 @@ interface LocalPartnerRecord {
 // changes here via /partners/sync, so this is what actually switches a key on and off.
 const ACTIVE_PARTNER_STATUSES = new Set(["approved", "live"]);
 
+// Partner records by key prefix, kept for 30 s so a busy flow (config, create, complete, share)
+// doesn't read the partner every request. The hash is still checked every time, and any sync
+// from the portal clears this, so key changes and status changes apply immediately.
+const PARTNER_CACHE_MS = 30_000;
+const PARTNER_CACHE_MAX = 1000;
+const partnerCache = new Map<string, { partner: LocalPartnerRecord; expiresAt: number }>();
+onPartnersChanged(() => partnerCache.clear());
+
+async function findPartnerByPrefix(prefix: string): Promise<LocalPartnerRecord | null> {
+  const cached = partnerCache.get(prefix);
+  if (cached && cached.expiresAt > Date.now()) return cached.partner;
+  const partner = await findOne<LocalPartnerRecord>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
+  // only real records are cached: an unknown prefix (a typo or a guess) always goes to the DB
+  if (partner) {
+    if (partnerCache.size >= PARTNER_CACHE_MAX) partnerCache.clear();
+    partnerCache.set(prefix, { partner, expiresAt: Date.now() + PARTNER_CACHE_MS });
+  }
+  return partner;
+}
+
 export async function authenticatePartnerKey(req: Request): Promise<VerifiedPartner | null> {
   const key = extractBearer(req);
   if (!key) return null;
@@ -75,7 +98,7 @@ export async function authenticatePartnerKey(req: Request): Promise<VerifiedPart
   const lastUnderscore = key.lastIndexOf("_");
   const prefix = lastUnderscore === -1 ? key : key.slice(0, lastUnderscore);
 
-  const partner = await findOne<LocalPartnerRecord>(PARTNER_COLLECTION, { apiKeyPrefix: prefix });
+  const partner = await findPartnerByPrefix(prefix);
   if (!partner?.apiKeyHash || !secretMatchesHash(key, partner.apiKeyHash)) {
     logEvent("auth.partner_key_invalid", { detail: { route: req.path, reason: "no_local_match" } });
     return null;
@@ -156,16 +179,14 @@ export function requireAllowedOrigin(req: Request, res: Response, next: NextFunc
   });
 }
 
-// checks the per-flow token (X-Occubuy-Session header) matches this exact scoreId and
-// hasn't expired. this is the part that actually stops someone with just the partner key
-// from reading/sharing/declining a score that isn't theirs
-export async function verifySessionToken(scoreId: string, token: string | undefined): Promise<boolean> {
-  if (!token) return false;
-  const scoreDoc = await findById<{ sessionTokenHash: string; sessionTokenExpiresAt?: string }>(
-    USERSCORE_COLLECTION,
-    scoreId
-  );
-  if (!scoreDoc) return false;
+// checks the per-flow token (X-Occubuy-Session header) against an already-loaded score:
+// right token for this exact score and not expired. this is the part that actually stops
+// someone with just the partner key from reading/sharing/declining a score that isn't theirs
+export function sessionTokenMatches(
+  scoreDoc: Pick<IUserScore, "sessionTokenHash" | "sessionTokenExpiresAt"> | null,
+  token: string | undefined
+): boolean {
+  if (!token || !scoreDoc?.sessionTokenHash) return false;
   if (!secretMatchesHash(token, scoreDoc.sessionTokenHash)) return false;
   if (scoreDoc.sessionTokenExpiresAt && Date.now() > Date.parse(scoreDoc.sessionTokenExpiresAt)) {
     return false;
@@ -183,11 +204,12 @@ function sessionHeader(req: Request): string | undefined {
 // Authorization header at all, so partner B's key (or no key) + partner A's session token
 // got A's score back (found by Jansen, same gap the GET /scores/:scoreId fix closed on 29 Aug).
 // 404 not 403 on a partner mismatch so we don't confirm the score exists for someone else.
+// The score and the partner are read once, in parallel, and the score is handed to the route.
 export function requireSessionAuth(req: Request, res: Response, next: NextFunction): void {
   const { scoreId } = req.params as { scoreId: string };
-  Promise.all([verifySessionToken(scoreId, sessionHeader(req)), authenticatePartnerKey(req)])
-    .then(async ([sessionOk, partner]) => {
-      if (!sessionOk) {
+  Promise.all([findById<IUserScore>(USERSCORE_COLLECTION, scoreId), authenticatePartnerKey(req)])
+    .then(([scoreDoc, partner]) => {
+      if (!sessionTokenMatches(scoreDoc, sessionHeader(req))) {
         logEvent("auth.session_invalid", { scoreId, detail: { route: req.path } });
         res.status(401).json({ message: "Invalid or missing session token", code: "SESSION_INVALID" });
         return;
@@ -196,7 +218,6 @@ export function requireSessionAuth(req: Request, res: Response, next: NextFuncti
         res.status(401).json({ message: "Missing or invalid partner API key", code: "PARTNER_KEY_INVALID" });
         return;
       }
-      const scoreDoc = await findById<{ partnerId: string }>(USERSCORE_COLLECTION, scoreId);
       if (!scoreDoc || scoreDoc.partnerId !== partner._id) {
         logEvent("auth.session_invalid", {
           partnerId: partner._id,
@@ -207,6 +228,7 @@ export function requireSessionAuth(req: Request, res: Response, next: NextFuncti
         return;
       }
       req.partner = partner;
+      req.scoreDoc = scoreDoc;
       next();
     })
     .catch(next);

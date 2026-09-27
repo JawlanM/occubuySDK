@@ -93,13 +93,26 @@ async function mintAccessToken(): Promise<{ accessToken: string; expiresIn: numb
 
 // Called from POST /scores to build a real fastlinkSession, the same shape the mock
 // provider already returns - so the SDK-side code needs no changes either way.
+// The token is for the configured Yodlee user, not per renter, so one token serves every
+// session until it's close to expiring. A renter always gets one with at least 10 minutes left,
+// so FastLink can't expire halfway through their bank login.
+const MIN_TOKEN_LIFE_MS = 10 * 60 * 1000;
+let cachedToken: { accessToken: string; expiresAtMs: number } | null = null;
+
+export function clearYodleeTokenCache(): void {
+  cachedToken = null;
+}
+
 export async function createYodleeFastLinkSession(): Promise<YodleeFastLinkSession> {
-  const { accessToken, expiresIn } = await mintAccessToken();
+  if (!cachedToken || cachedToken.expiresAtMs - Date.now() < MIN_TOKEN_LIFE_MS) {
+    const { accessToken, expiresIn } = await mintAccessToken();
+    cachedToken = { accessToken, expiresAtMs: Date.now() + expiresIn * 1000 };
+  }
   return {
     fastlinkUrl: FASTLINK_URL as string,
-    accessToken,
+    accessToken: cachedToken.accessToken,
     configName: CONFIG_NAME,
-    expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString(),
+    expiresAt: new Date(cachedToken.expiresAtMs).toISOString(),
     transport: "yodleeJs",
   };
 }

@@ -23,6 +23,7 @@ vi.mock("../src/config/dataApi", async () => {
 import * as dataApi from "../src/config/dataApi";
 import { generateApiKey, generateSessionToken } from "../src/utils/crypto";
 import { app } from "../src/app";
+import { partnersChanged } from "../src/utils/partnerCache";
 
 const keyA = generateApiKey("partnerA");
 const keyB = generateApiKey("partnerB");
@@ -98,6 +99,8 @@ let portalLeadPushCalls: Array<Record<string, unknown>> = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // partner records are cached between requests; each test swaps them, like a portal sync would
+  partnersChanged();
   process.env.LEAD_PUSH_RETRY_DELAYS_MS = "0,0"; // retries without waiting 1s/5s
   // Routes call insertOne for audit logging too; give it a resolved default.
   vi.mocked(dataApi.insertOne).mockResolvedValue("event-id-placeholder");
@@ -228,6 +231,34 @@ describe("session-token routes - partner scoping", () => {
 
     expect(res.status).toBe(401);
     expect(res.body.code).toBe("SESSION_INVALID");
+  });
+});
+
+// B3: the session check loads the score and the partner once each, and hands the score to
+// the route instead of the route reading it again
+describe("one read per request", () => {
+  for (const route of ["share", "decline"] as const) {
+    it(`POST /${route} reads the score once and the partner once`, async () => {
+      const res = await request(app)
+        .post(`/api/scores/${shareScoreId}/${route}`)
+        .set("Authorization", `Bearer ${keyA.fullKey}`)
+        .set("X-Occubuy-Session", shareSessionToken.token);
+
+      expect(res.status).toBe(200);
+      expect(vi.mocked(dataApi.findById).mock.calls.filter(([c]) => c === "userscores")).toHaveLength(1);
+      expect(vi.mocked(dataApi.findOne).mock.calls.filter(([c]) => c === "partners")).toHaveLength(1);
+    });
+  }
+
+  it("GET /scores/:id reads the score once and the partner once", async () => {
+    const res = await request(app)
+      .get(`/api/scores/${shareScoreId}`)
+      .set("Authorization", `Bearer ${keyA.fullKey}`)
+      .set("X-Occubuy-Session", shareSessionToken.token);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(dataApi.findById).mock.calls.filter(([c]) => c === "userscores")).toHaveLength(1);
+    expect(vi.mocked(dataApi.findOne).mock.calls.filter(([c]) => c === "partners")).toHaveLength(1);
   });
 });
 

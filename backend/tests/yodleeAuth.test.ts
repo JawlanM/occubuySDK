@@ -114,6 +114,32 @@ describe("createYodleeFastLinkSession", () => {
     expect(options.body).toBe("clientId=client-id&secret=client-secret");
   });
 
+  it("reuses one token for later sessions while it has 10+ minutes left, then mints a new one", async () => {
+    setEnv(CONFIG);
+    let n = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ token: { accessToken: `token-${++n}`, expiresIn: 1800 } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+    try {
+      const { createYodleeFastLinkSession } = await loadModule();
+      expect((await createYodleeFastLinkSession()).accessToken).toBe("token-1");
+      vi.advanceTimersByTime(15 * 60 * 1000); // 15 min left: still reused
+      expect((await createYodleeFastLinkSession()).accessToken).toBe("token-1");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(6 * 60 * 1000); // 9 min left: too little for a renter's login
+      const fresh = await createYodleeFastLinkSession();
+      expect(fresh.accessToken).toBe("token-2");
+      expect(Date.parse(fresh.expiresAt) - Date.now()).toBe(1800 * 1000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("throws with the status and body on a non-ok response", async () => {
     setEnv(CONFIG);
     const fetchMock = vi.fn().mockResolvedValue({

@@ -6,6 +6,7 @@ import { internalRouter } from "./routes/internal.routes";
 import { rentersRouter } from "./routes/renters.routes";
 import { findOne } from "./config/dataApi";
 import { PARTNER_COLLECTION } from "./models/partner.model";
+import { onPartnersChanged } from "./utils/partnerCache";
 
 export const app = express();
 
@@ -57,8 +58,8 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.
 // partner record as allowedOrigins, see middleware/auth.ts requireAllowedOrigin). CORS only
 // has to let the browser through here - which partner may use which origin is checked per
 // key on POST /api/scores, so this just answers "is this origin anyone's?".
-// Cached for a minute so it's not a DB round trip per request; a newly added domain works
-// within about a minute. Lookup errors aren't cached and fall back to "no".
+// Cached for a minute so it's not a DB round trip per request; cleared on every partner sync
+// from the portal, so an added or removed domain applies straight away. Lookup errors aren't cached and fall back to "no".
 const PARTNER_ORIGIN_CACHE_MS = 60_000;
 const PARTNER_ORIGIN_CACHE_MAX = 1000;
 const partnerOriginCache = new Map<string, { allowed: boolean; expiresAt: number }>();
@@ -80,6 +81,7 @@ async function isPartnerOrigin(origin: string): Promise<boolean> {
 export function clearPartnerOriginCache(): void {
   partnerOriginCache.clear();
 }
+onPartnersChanged(clearPartnerOriginCache);
 
 app.use(async (req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;

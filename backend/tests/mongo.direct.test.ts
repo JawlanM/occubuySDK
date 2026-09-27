@@ -83,6 +83,64 @@ describe.skipIf(!TEST_URI)("direct MongoDB (no db-proxy)", () => {
     });
   });
 
+  describe("score flow on real Mongo", () => {
+    const start = async () => {
+      const res = await request(app)
+        .post("/api/scores")
+        .set("Authorization", `Bearer ${partnerKey}`)
+        .send({ userId: "r1", applicant: { fullName: "Test Renter", email: "r@x.test", phone: "0412 345 678", dob: "1995-05-05", address: "1 Test Street, Melbourne" } });
+      expect(res.status).toBe(201);
+      return res.body as { scoreId: string; sessionToken: string };
+    };
+    const complete = (scoreId: string, token: string) =>
+      request(app)
+        .post(`/api/scores/${scoreId}/complete`)
+        .set("Authorization", `Bearer ${partnerKey}`)
+        .set("X-Occubuy-Session", token)
+        .send({ providerId: 1, providerName: "Test Bank A", providerAccountId: 2, requestId: "q", status: "SUCCESS" });
+
+    it("/complete returns the score straight away, GET returns the same one", async () => {
+      const { scoreId, sessionToken } = await start();
+      const done = await complete(scoreId, sessionToken);
+      expect(done.status).toBe(200);
+      expect(done.body.status).toBe("COMPLETED");
+      expect(done.body.score.value).toBeGreaterThanOrEqual(0);
+
+      const got = await request(app)
+        .get(`/api/scores/${scoreId}`)
+        .set("Authorization", `Bearer ${partnerKey}`)
+        .set("X-Occubuy-Session", sessionToken);
+      expect(got.body).toEqual(done.body);
+
+      const stored = await dataApi.findById<{ linkedAccount: { providerName: string } }>("userscores", scoreId);
+      expect(stored?.linkedAccount.providerName).toBe("Test Bank A");
+      expect((await complete(scoreId, sessionToken)).status).toBe(409);
+    });
+
+    it("parallel /complete calls score exactly once", async () => {
+      const { scoreId, sessionToken } = await start();
+      const results = await Promise.all(Array.from({ length: 6 }, () => complete(scoreId, sessionToken)));
+      const ok = results.filter((r) => r.status === 200);
+      expect(ok).toHaveLength(1);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(5);
+      const stored = await dataApi.findById<{ score: { value: number } }>("userscores", scoreId);
+      expect(stored?.score.value).toBe(ok[0].body.score.value);
+    });
+
+    it("a score left in PROCESSING (older flow) is scored once by parallel polls", async () => {
+      const { scoreId, sessionToken } = await start();
+      await dataApi.updateById("userscores", scoreId, { status: "PROCESSING" });
+      const polls = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          request(app).get(`/api/scores/${scoreId}`).set("Authorization", `Bearer ${partnerKey}`).set("X-Occubuy-Session", sessionToken)
+        )
+      );
+      const values = new Set(polls.map((p) => p.body.score?.value));
+      expect(polls.every((p) => p.body.status === "COMPLETED")).toBe(true);
+      expect(values.size).toBe(1);
+    });
+  });
+
   describe("OTP on real Mongo", () => {
     const send = () =>
       request(app).post("/api/renters/send-otp").set("Authorization", `Bearer ${partnerKey}`).send({ phone: PHONE });
@@ -114,9 +172,14 @@ describe.skipIf(!TEST_URI)("direct MongoDB (no db-proxy)", () => {
       const wrong = code === "000000" ? "111111" : "000000";
 
       const results = await Promise.all(Array.from({ length: 8 }, () => verify(wrong)));
-      const statuses = results.map((r) => r.status);
-      expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(4);
-      expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(4);
+      // how many land as 401 (invalid, or the code was already burned when it arrived) vs 429
+      // depends on timing; what can't change is that none pass and only 5 were ever checked
+      expect(results.every((r) => r.status === 401 || r.status === 429)).toBe(true);
+      expect(results.some((r) => r.status === 429)).toBe(true);
+      const db = await dataApi.connectDb();
+      const burned = await db.collection("otpVerifications").find({ phone: "+61412345678" }).sort({ _id: -1 }).limit(1).next();
+      expect(burned?.attempts).toBe(5);
+      expect(burned?.retiredReason).toBe("too_many_attempts");
 
       // even the right code is refused now
       expect((await verify(code)).status).not.toBe(200);

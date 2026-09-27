@@ -8,6 +8,7 @@ import { normalizeOriginList } from "../utils/origins";
 import { normalizeBranding, type WidgetBranding } from "../utils/branding";
 import { retryPendingLeadPushes } from "../services/leadPush";
 import { logEvent } from "../utils/auditLog";
+import { partnersChanged } from "../utils/partnerCache";
 
 // Not partner-facing - only the portal (occubuy-integration-main) calls this, gated by the
 // same shared secret used the other way (middleware/auth.ts's old portal verify-key call).
@@ -137,6 +138,7 @@ internalRouter.post("/partners/sync", async (req: Request, res: Response) => {
     }
     await insertOne(PARTNER_COLLECTION, update);
   }
+  partnersChanged();
 
   res.status(200).json({ ok: true });
 });

@@ -661,3 +661,78 @@ describe("OccubuyScore.init", () => {
     expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull();
   });
 });
+
+// Score delivery after the bank step: straight from /complete (B5), polling only as the
+// fallback, and polling that rides out a short network blip (B8).
+describe("score after the bank step", () => {
+  async function driveToBankDone(fetchImpl: (url: string) => Promise<Response>, onError = vi.fn()) {
+    const container = makeContainer();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => fetchImpl(String(input)));
+    vi.stubGlobal("fetch", fetchMock);
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onError }).start();
+
+    const checkbox = container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull());
+
+    const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
+    for (const data of [
+      fastLinkSuccessMessage({ providerId: 1, providerAccountId: 2, requestId: "r", providerName: "Test Bank A", status: "SUCCESS" }),
+      { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
+    ]) {
+      window.dispatchEvent(new MessageEvent("message", { data, origin: "http://localhost:8787", source: iframe.contentWindow }));
+    }
+    return { container, fetchMock, onError };
+  }
+
+  const started = () =>
+    Promise.resolve(jsonResponse({ scoreId: "s1", sessionToken: "t", fastlinkSession: FASTLINK_SESSION }));
+
+  it("shows the score from /complete without polling", async () => {
+    const { container, fetchMock } = await driveToBankDone((url) => {
+      if (url.endsWith("/api/scores")) return started();
+      if (url.endsWith("/api/scores/s1/complete")) return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 640 } }));
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+
+    await vi.waitFor(() => expect(container.querySelector("[data-occubuy-score-value]")?.textContent).toBe("640"));
+    expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/api/scores/s1"))).toBe(false);
+  });
+
+  it("falls back to polling when /complete says PROCESSING, and rides out one network error", async () => {
+    let polls = 0;
+    const { container, onError } = await driveToBankDone((url) => {
+      if (url.endsWith("/api/scores")) return started();
+      if (url.endsWith("/api/scores/s1/complete")) return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
+      if (url.endsWith("/api/scores/s1")) {
+        polls += 1;
+        return polls === 1
+          ? Promise.reject(new Error("blip"))
+          : Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 455 } }));
+      }
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+
+    await vi.waitFor(() => expect(container.querySelector("[data-occubuy-score-value]")?.textContent).toBe("455"), { timeout: 6000 });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("gives up with POLL_FAILED after repeated network errors", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { onError } = await driveToBankDone((url) => {
+        if (url.endsWith("/api/scores")) return started();
+        if (url.endsWith("/api/scores/s1/complete")) return Promise.resolve(jsonResponse({ status: "PROCESSING" }));
+        return Promise.reject(new Error("down"));
+      });
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "POLL_FAILED" }));
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

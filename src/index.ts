@@ -125,6 +125,8 @@ function applyBrandColour(el: HTMLElement, cssVar: string, colour: string): void
 }
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
+const POLL_INTERVAL_MS = 1500;
+const MAX_POLL_ERRORS = 3; // network blips in a row before giving up; each one waits longer
 
 // The partner portal's five band names, 200-point steps (decided 26 Sep). The backend's
 // utils/band.ts uses the same cutoffs, so the widget, onComplete, GET /scores/:id and the portal
@@ -734,10 +736,17 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           additionalStatus: providerData.additionalStatus,
         }),
       })
-        .then((res) => {
+        .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          // the backend scores during /complete and sends it back; poll only if it didn't
+          const data = (await res.json().catch(() => ({}))) as { status?: string; score?: { value?: number } };
           if (cancelled) return;
-          renderScorePolling(scoreId);
+          const value = data.score?.value;
+          if (data.status === "COMPLETED" && typeof value === "number" && Number.isFinite(value)) {
+            renderSuccess(scoreId, value);
+          } else {
+            renderScorePolling(scoreId);
+          }
         })
         .catch(() => {
           if (!cancelled) fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.");
@@ -749,7 +758,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       poll(scoreId);
     }
 
-    function poll(scoreId: string): void {
+    function poll(scoreId: string, errorsInRow = 0): void {
       if (cancelled) return;
       pollAttempts += 1;
       if (pollAttempts > MAX_POLL_ATTEMPTS) {
@@ -762,7 +771,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       })
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json() as Promise<{ status?: string; score?: { value?: number } }>;
+          return res.json() as Promise<{ status?: string; score?: { value?: number }; retryAfter?: number }>;
         })
         .then((data) => {
           if (cancelled) return;
@@ -770,11 +779,18 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           if (data.status === "COMPLETED" && typeof value === "number" && Number.isFinite(value)) {
             renderSuccess(scoreId, value);
           } else {
-            pollTimer = setTimeout(() => poll(scoreId), 1500);
+            // the backend says how long to wait (seconds); never faster than our own interval
+            const wait = Math.max(POLL_INTERVAL_MS, (Number(data.retryAfter) || 0) * 1000);
+            pollTimer = setTimeout(() => poll(scoreId), wait);
           }
         })
         .catch(() => {
-          if (!cancelled) fail("POLL_FAILED", "We couldn't check your verification status. Please try again.");
+          if (cancelled) return;
+          if (errorsInRow + 1 >= MAX_POLL_ERRORS) {
+            fail("POLL_FAILED", "We couldn't check your verification status. Please try again.");
+            return;
+          }
+          pollTimer = setTimeout(() => poll(scoreId, errorsInRow + 1), POLL_INTERVAL_MS * 2 ** (errorsInRow + 1));
         });
     }
 

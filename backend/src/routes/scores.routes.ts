@@ -4,13 +4,13 @@ import {
   requirePartnerAuth,
   requireAllowedOrigin,
   requireSessionAuth,
-  verifySessionToken,
+  sessionTokenMatches,
   authenticatePartnerKey,
   sessionHeader,
 } from "../middleware/auth";
 import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
-import { findById, insertOne, updateById, OBJECT_ID_RE } from "../config/dataApi";
+import { findById, insertOne, updateById, updateOne, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
 import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
 import { pushLeadWithRetry } from "../services/leadPush";
@@ -24,6 +24,33 @@ const SESSION_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour - long enough for a real 
 function mockGenerateScore(): { value: number; band: ScoreBand } {
   const value = Math.floor(Math.random() * 1001);
   return { value, band: scoreBand(value) };
+}
+
+// Scores a score that's waiting in `fromStatus`, exactly once: the write only lands while the
+// score is still in that status, so two overlapping calls can't both score it (the loser just
+// reads what the winner stored). `won` says whether this call did the scoring.
+async function scoreOnce(
+  scoreDoc: IUserScore,
+  fromStatus: IUserScore["status"],
+  alsoSet: Record<string, unknown> = {}
+): Promise<{ won: boolean; score: IUserScore["score"] | null }> {
+  const { value, band } = mockGenerateScore();
+  const won = await updateOne(
+    USERSCORE_COLLECTION,
+    { _id: scoreDoc._id, status: fromStatus },
+    { $set: { ...alsoSet, score: { value, band }, status: "COMPLETED", updatedAt: new Date().toISOString() } }
+  );
+  if (won.matchedCount > 0) {
+    logEvent("score.completed", { partnerId: scoreDoc.partnerId, scoreId: scoreDoc._id, detail: { band } });
+    return { won: true, score: { value, band } };
+  }
+  const current = await findById<IUserScore>(USERSCORE_COLLECTION, scoreDoc._id);
+  return { won: false, score: current?.status === "COMPLETED" ? current.score ?? null : null };
+}
+
+function scoreBody(score: NonNullable<IUserScore["score"]>) {
+  // band always recomputed, so scores stored under the old band names read the same as new ones
+  return { status: "COMPLETED" as const, score: { value: score.value, band: scoreBand(score.value) } };
 }
 
 // BANK_PROVIDER=yodlee (and every YODLEE_* var set) mints a real sandbox FastLink session.
@@ -115,12 +142,10 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
   }
 
 
-  //step 2, renter connects their bank
-  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
-  if (!scoreDoc) {
-    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
-  }
-
+  //step 2, renter connects their bank. Scored right here (the mock is instant), so the
+  // widget shows the result from this response without polling. GET still works for
+  // older widgets and for a slower real scorer later.
+  const scoreDoc = req.scoreDoc!;
   if (scoreDoc.status !== "CREATED") {
     return res.status(409).json({
       message: `Score is in status ${scoreDoc.status}, expected CREATED`,
@@ -128,15 +153,16 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
     });
   }
 
-  await updateById(USERSCORE_COLLECTION, scoreId, {
-    linkedAccount: { providerId, providerAccountId, requestId, providerName, additionalStatus },
-    status: "PROCESSING",
-    updatedAt: new Date().toISOString(),
-  });
-
   logEvent("score.bank_connected", { partnerId: scoreDoc.partnerId, scoreId, detail: { providerName } });
 
-  return res.status(200).json({ status: "PROCESSING" });
+  const { won, score } = await scoreOnce(scoreDoc, "CREATED", {
+    linkedAccount: { providerId, providerAccountId, requestId, providerName, additionalStatus },
+  });
+  if (!won || !score) {
+    // someone else moved it on first (a second /complete for the same score)
+    return res.status(409).json({ message: "Score was already completed", code: "INVALID_SCORE_STATE" });
+  }
+  return res.status(200).json(scoreBody(score));
 });
 
 // works two ways: SDK polls with the session token to check on its own in-progress score
@@ -157,15 +183,18 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
 
-  const hasValidSession = await verifySessionToken(scoreId, sessionHeader(req));
-  const partner = await authenticatePartnerKey(req);
+  // one read of the score and the partner, in parallel
+  const [scoreDoc, partner] = await Promise.all([
+    findById<IUserScore>(USERSCORE_COLLECTION, scoreId),
+    authenticatePartnerKey(req),
+  ]);
+  const hasValidSession = sessionTokenMatches(scoreDoc, sessionHeader(req));
 
   if (!partner) {
     logEvent("auth.partner_key_invalid", { scoreId, detail: { route: "GET /scores/:scoreId" } });
     return res.status(401).json({ message: "Invalid or missing credentials", code: "AUTH_REQUIRED" });
   }
 
-  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
   if (!scoreDoc) {
     return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
   }
@@ -186,26 +215,14 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(200).json({ status: "PROCESSING", retryAfter: 3 });
   }
 
-
-
-  //step 3, widget polls GET /score{id} to check progress
+  // step 3 (older flow): a score left in PROCESSING gets scored on the first poll, once
   if (scoreDoc.status === "PROCESSING") {
-    // swap this for real scoring engine
-    const { value, band } = mockGenerateScore();
-    await updateById(USERSCORE_COLLECTION, scoreId, {
-      score: { value, band },
-      status: "COMPLETED",
-      updatedAt: new Date().toISOString(),
-    });
-    scoreDoc.score = { value, band };
-    scoreDoc.status = "COMPLETED";
-    logEvent("score.completed", { partnerId: scoreDoc.partnerId, scoreId, detail: { band } });
+    const { score } = await scoreOnce(scoreDoc, "PROCESSING");
+    return score ? res.status(200).json(scoreBody(score)) : res.status(200).json({ status: "PROCESSING", retryAfter: 3 });
   }
 
   if (scoreDoc.status === "COMPLETED" && scoreDoc.score) {
-    // band always recomputed, so scores stored under the old band names read the same as new ones
-    const { value } = scoreDoc.score;
-    return res.status(200).json({ status: "COMPLETED", score: { value, band: scoreBand(value) } });
+    return res.status(200).json(scoreBody(scoreDoc.score));
   }
 
   // status === "FAILED"
@@ -216,11 +233,7 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
 // actually flips sharedAt - GET above won't hand anything to a partner until this ran
 scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Request, res: Response) => {
   const scoreId = String(req.params.scoreId ?? "");
-
-  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
-  if (!scoreDoc) {
-    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
-  }
+  const scoreDoc = req.scoreDoc!;
 
   if (scoreDoc.declinedAt) {
     return res.status(409).json({ message: "This score was already declined", code: "ALREADY_DECLINED" });
@@ -260,11 +273,7 @@ scoresRouter.post("/scores/:scoreId/share", requireSessionAuth, async (req: Requ
 // locked out for good even if something later tries to call it again
 scoresRouter.post("/scores/:scoreId/decline", requireSessionAuth, async (req: Request, res: Response) => {
   const scoreId = String(req.params.scoreId ?? "");
-
-  const scoreDoc = await findById<IUserScore>(USERSCORE_COLLECTION, scoreId);
-  if (!scoreDoc) {
-    return res.status(404).json({ message: "Score not found", code: "SCORE_NOT_FOUND" });
-  }
+  const scoreDoc = req.scoreDoc!;
 
   if (!scoreDoc.declinedAt) {
     await updateById(USERSCORE_COLLECTION, scoreId, {
