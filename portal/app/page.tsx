@@ -21,7 +21,7 @@ export default function HomePage() {
           Everything a partner developer needs to connect to the Occubuy Score SDK.
         </p>
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        <div className="mt-10 grid gap-4 sm:grid-cols-3">
           <Link
             href="/docs"
             className="rounded-lg border p-6 text-left transition-colors"
@@ -29,7 +29,7 @@ export default function HomePage() {
           >
             <p style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>API Reference</p>
             <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
-              Endpoints, auth, request/response shapes, error codes.
+              Endpoints, auth, request and response shapes, error codes.
             </p>
           </Link>
           <Link
@@ -39,7 +39,17 @@ export default function HomePage() {
           >
             <p style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>SDK Flow</p>
             <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
-              The full widget lifecycle, callbacks, and known issues.
+              The widget from init() to share, callbacks, errors, accessibility.
+            </p>
+          </Link>
+          <Link
+            href="/consent"
+            className="rounded-lg border p-6 text-left transition-colors"
+            style={{ borderColor: "var(--border-default)", background: "var(--surface-card)" }}
+          >
+            <p style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Consent & Data</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
+              What renters agree to, what you see and when, withdrawal.
             </p>
           </Link>
         </div>
