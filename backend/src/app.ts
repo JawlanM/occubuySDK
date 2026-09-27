@@ -83,15 +83,22 @@ export function clearPartnerOriginCache(): void {
 
 app.use(async (req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
-  if (origin && (ALLOWED_ORIGINS.includes(origin) || (await isPartnerOrigin(origin)))) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Occubuy-Session");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST");
   if (req.method === "OPTIONS") {
+    // Preflight only asks "may I send this?". Any origin may send; which origin may use which
+    // key is checked on the real request (requireAllowedOrigin), and that answers an unlisted
+    // origin with a readable 403 instead of the browser blocking it before it's sent.
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
     res.sendStatus(204);
     return;
+  }
+  if (origin && (ALLOWED_ORIGINS.includes(origin) || (await isPartnerOrigin(origin)))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
   }
   next();
 });

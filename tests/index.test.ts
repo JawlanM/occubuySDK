@@ -463,6 +463,43 @@ describe("OccubuyScore.init", () => {
     });
   });
 
+  it("passes ORIGIN_NOT_ALLOWED to onError and logs the reason for the partner's developer", async () => {
+    const container = makeContainer();
+    const reason = "No website is registered for this API key. Add your website under Allowed websites in the Occubuy partner portal.";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        String(url).endsWith("/api/scores")
+          ? Promise.resolve(new Response(JSON.stringify({ code: "ORIGIN_NOT_ALLOWED", message: reason }), { status: 403 }))
+          : Promise.reject(new Error("not needed"))
+      )
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const onError = vi.fn();
+    const instance = init({
+      apiKey: "pk_sandbox_test",
+      container: "#occubuy-widget",
+      applicant: VALID_APPLICANT,
+      onError,
+    });
+    instance.start();
+
+    container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!.checked = true;
+    container
+      .querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!
+      .dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "ORIGIN_NOT_ALLOWED" }));
+      expect(warn).toHaveBeenCalledWith(`[Occubuy] ${reason}`);
+      // the renter isn't shown the setup details
+      expect(container.textContent).not.toContain("Allowed websites");
+    });
+    warn.mockRestore();
+  });
+
   it("fires onError with INVALID_APPLICANT and never calls the API when applicant details are bad", async () => {
     const container = makeContainer();
     const fetchMock = vi.fn(() => Promise.reject(new Error("should not be called")));

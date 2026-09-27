@@ -25,6 +25,8 @@ export interface OccubuyDeclineResult {
 export type OccubuyErrorCode =
   | "INVALID_APPLICANT"
   | "START_FAILED"
+  | "ORIGIN_NOT_ALLOWED"
+  | "PARTNER_KEY_INVALID"
   | "BANK_CONNECTION_FAILED"
   | "POLL_FAILED"
   | "POLL_TIMEOUT"
@@ -550,8 +552,17 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ userId: crypto.randomUUID(), applicant: resolved.applicant }),
         })
-          .then((res) => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          .then(async (res) => {
+            if (!res.ok) {
+              // setup problems on the partner's side get their own code, and the reason goes to
+              // the console for the partner's developer; the renter just sees it isn't available
+              const body = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
+              if (body.code === "ORIGIN_NOT_ALLOWED" || body.code === "PARTNER_KEY_INVALID") {
+                console.warn(`[Occubuy] ${body.message ?? body.code}`);
+                throw body.code;
+              }
+              throw new Error(`HTTP ${res.status}`);
+            }
             return res.json() as Promise<{ scoreId?: string; sessionToken?: string; fastlinkSession?: unknown }>;
           })
           .then((data) => {
@@ -562,8 +573,13 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             sessionToken = data.sessionToken;
             renderBankConnection(data.scoreId, session);
           })
-          .catch(() => {
-            if (!cancelled) fail("START_FAILED", "We couldn't start your verification. Please try again.");
+          .catch((err) => {
+            if (cancelled) return;
+            if (err === "ORIGIN_NOT_ALLOWED" || err === "PARTNER_KEY_INVALID") {
+              fail(err, "Verification isn't available on this website right now.");
+            } else {
+              fail("START_FAILED", "We couldn't start your verification. Please try again.");
+            }
           });
       });
     }

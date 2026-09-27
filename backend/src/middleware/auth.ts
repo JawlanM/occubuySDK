@@ -62,11 +62,11 @@ interface LocalPartnerRecord {
   branding?: WidgetBranding;
 }
 
-// statuses the portal uses for a partner that's been switched off (admin suspend/pause/
-// archive, or rejected). the portal pushes status changes here via /partners/sync, this
-// is what actually makes them stop the key. draft/pending_review stay allowed on purpose -
-// the portal hands out sandbox keys before approval and partners test with them.
-const INACTIVE_PARTNER_STATUSES = new Set(["paused", "suspended", "archived", "rejected"]);
+// Only approved or live partners can use a key, same rule the portal uses for showing the
+// Embed score page and handing out keys. Everything else (draft, pending_review, paused,
+// suspended, archived, rejected, or no status at all) is refused. The portal pushes status
+// changes here via /partners/sync, so this is what actually switches a key on and off.
+const ACTIVE_PARTNER_STATUSES = new Set(["approved", "live"]);
 
 export async function authenticatePartnerKey(req: Request): Promise<VerifiedPartner | null> {
   const key = extractBearer(req);
@@ -81,7 +81,7 @@ export async function authenticatePartnerKey(req: Request): Promise<VerifiedPart
     return null;
   }
 
-  if (partner.status && INACTIVE_PARTNER_STATUSES.has(partner.status)) {
+  if (!partner.status || !ACTIVE_PARTNER_STATUSES.has(partner.status)) {
     logEvent("auth.partner_key_invalid", {
       partnerId: partner.portalPartnerId,
       detail: { route: req.path, reason: "partner_inactive", status: partner.status },
@@ -122,13 +122,13 @@ export async function requirePartnerAuth(req: Request, res: Response, next: Next
 // but they can't put the flow in front of a real renter, so that's not what this is for.
 //
 // Only on POST /scores - everything after that needs the score's own session token anyway.
-// Lets through: no Origin header (not a browser), a partner with no list yet (sandbox
-// partners who haven't registered a domain, so nothing that works today breaks), and
-// localhost on sandbox keys so partners can test locally.
+// No website, no SDK: a partner with an empty list is refused from every website. Lets
+// through: no Origin header (not a browser), and localhost on sandbox keys so partners can
+// test locally before they register a site.
 export function requireAllowedOrigin(req: Request, res: Response, next: NextFunction): void {
   const origin = req.headers.origin;
   const partner = req.partner;
-  if (!origin || !partner || partner.allowedOrigins.length === 0) {
+  if (!origin || !partner) {
     next();
     return;
   }
@@ -139,9 +139,19 @@ export function requireAllowedOrigin(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  logEvent("auth.origin_rejected", { partnerId: partner._id, detail: { route: req.path, origin } });
+  const noWebsites = partner.allowedOrigins.length === 0;
+  logEvent("auth.origin_rejected", {
+    partnerId: partner._id,
+    detail: { route: req.path, origin, reason: noWebsites ? "no_websites" : "not_listed" },
+  });
+  // CORS only lets listed origins read responses; this one is let through so the widget can
+  // tell the partner why instead of the browser showing a bare network error
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
   res.status(403).json({
-    message: "This API key isn't allowed on this website. Add the site in the Occubuy partner portal.",
+    message: noWebsites
+      ? "No website is registered for this API key. Add your website under Allowed websites in the Occubuy partner portal."
+      : "This API key isn't allowed on this website. Add the site under Allowed websites in the Occubuy partner portal.",
     code: "ORIGIN_NOT_ALLOWED",
   });
 }

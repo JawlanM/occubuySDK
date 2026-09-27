@@ -170,11 +170,26 @@ describe("domain binding (allowedOrigins)", () => {
     expect(rejected?.partnerId).toBe(portalPartnerId);
   });
 
-  it("partner with no list yet works from anywhere (nothing that works today breaks)", async () => {
+  it("no website registered: refused from any website, with a reason the widget can read", async () => {
     const key = portalKey();
     await sync({ portalPartnerId, fullKey: key, status: "live" });
 
-    expect((await createScore(key, "https://anywhere.example")).status).toBe(201);
+    const res = await createScore(key, "https://anywhere.example");
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("ORIGIN_NOT_ALLOWED");
+    expect(res.body.message).toMatch(/No website is registered/);
+    expect(res.headers["access-control-allow-origin"]).toBe("https://anywhere.example");
+
+    // still fine: local testing on a sandbox key, and non-browser callers
+    expect((await createScore(key, "http://localhost:5500")).status).toBe(201);
+    expect((await createScore(key)).status).toBe(201);
+  });
+
+  it("no website registered: a live key doesn't get the localhost exception", async () => {
+    const key = portalKey().replace("pk_sandbox_", "pk_live_");
+    await sync({ portalPartnerId, fullKey: key, status: "live" });
+
+    expect((await createScore(key, "http://localhost:5500")).status).toBe(403);
   });
 
   it("localhost always works on a sandbox key, for local testing", async () => {
@@ -200,7 +215,8 @@ describe("domain binding (allowedOrigins)", () => {
     expect((await createScore(key, "https://copycat.example")).status).toBe(403);
 
     await sync({ portalPartnerId, status: "live", allowedOrigins: [] });
-    expect((await createScore(key, "https://copycat.example")).status).toBe(201);
+    expect((await createScore(key, "https://copycat.example")).status).toBe(403);
+    expect((await createScore(key, partnerSite)).status).toBe(403);
   });
 
   it("normalises what the portal sends and rejects junk without storing any of it", async () => {
@@ -216,15 +232,22 @@ describe("domain binding (allowedOrigins)", () => {
     expect((await createScore(key, "https://copycat.example")).status).toBe(403);
   });
 
-  it("CORS lets a registered partner website through, not an unknown one", async () => {
+  it("CORS: responses readable only by a registered website; preflight open so a refusal is readable", async () => {
     const key = portalKey();
     await sync({ portalPartnerId, fullKey: key, status: "live", allowedOrigins: [partnerSite] });
 
-    const ok = await request(app).options("/api/scores").set("Origin", partnerSite);
+    const ok = await request(app).get("/partners/config").set("Origin", partnerSite).set("Authorization", `Bearer ${key}`);
     expect(ok.headers["access-control-allow-origin"]).toBe(partnerSite);
-
-    const unknown = await request(app).options("/api/scores").set("Origin", "https://copycat.example");
+    const unknown = await request(app).get("/partners/config").set("Origin", "https://copycat.example").set("Authorization", `Bearer ${key}`);
     expect(unknown.headers["access-control-allow-origin"]).toBeUndefined();
+
+    const preflight = await request(app).options("/api/scores").set("Origin", "https://copycat.example");
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe("https://copycat.example");
+
+    const refused = await createScore(key, "https://copycat.example");
+    expect(refused.status).toBe(403);
+    expect(refused.headers["access-control-allow-origin"]).toBe("https://copycat.example");
   });
 });
 

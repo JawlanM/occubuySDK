@@ -166,7 +166,7 @@ describe("GET /api/scores/:scoreId - partner scoping", () => {
 // portal pushes status changes (admin suspend/archive etc) through /partners/sync - once
 // the local copy says the partner is switched off, their key has to stop working
 describe("inactive partners", () => {
-  for (const status of ["paused", "suspended", "archived", "rejected"]) {
+  for (const status of ["paused", "suspended", "archived", "rejected", "draft", "pending_review", undefined]) {
     it(`rejects a ${status} partner's key`, async () => {
       vi.mocked(dataApi.findOne).mockResolvedValue({ ...partnerA, status } as any);
 
@@ -179,15 +179,17 @@ describe("inactive partners", () => {
     });
   }
 
-  it("still lets a draft partner use their sandbox key", async () => {
-    vi.mocked(dataApi.findOne).mockResolvedValue({ ...partnerA, status: "draft" } as any);
+  for (const status of ["approved", "live"]) {
+    it(`lets a ${status} partner use their key`, async () => {
+      vi.mocked(dataApi.findOne).mockResolvedValue({ ...partnerA, status } as any);
 
-    const res = await request(app)
-      .get(`/api/scores/${scoreId}`)
-      .set("Authorization", `Bearer ${keyA.fullKey}`);
+      const res = await request(app)
+        .get(`/api/scores/${scoreId}`)
+        .set("Authorization", `Bearer ${keyA.fullKey}`);
 
-    expect(res.status).toBe(200);
-  });
+      expect(res.status).toBe(200);
+    });
+  }
 });
 
 // Jansen's test: partner B's key + partner A's session token + A's scoreId. Session token is
