@@ -13,6 +13,23 @@ export const app = express();
 // this, req.protocol always reports "http" and breaks the fastlinkUrl we hand to the SDK.
 app.set("trust proxy", 1);
 
+// Server time per request, to compare before/after performance changes. Off in tests.
+if (process.env.NODE_ENV !== "test") {
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const started = process.hrtime.bigint();
+    res.on("finish", () => {
+      const ms = Number(process.hrtime.bigint() - started) / 1e6;
+      console.log(`[timing] ${req.method} ${req.baseUrl}${req.path} ${res.statusCode} ${ms.toFixed(1)}ms`);
+    });
+    next();
+  });
+}
+
+// For an uptime pinger to keep the free Render instance awake. No DB work, no auth.
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).send("ok");
+});
+
 // Manual CORS (no cors package) - partner site and backend are different origins, so
 // fetch() needs these headers or the browser blocks it.
 //

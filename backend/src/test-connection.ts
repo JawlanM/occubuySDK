@@ -1,10 +1,11 @@
-import { findOne } from "./config/dataApi";
+import { closeDb, findOne } from "./config/dataApi";
 import { PARTNER_COLLECTION } from "./models/partner.model";
 
-// harmless read - just proves the Data API is reachable and configured correctly
+// harmless read - just proves MongoDB is reachable and configured correctly
 findOne(PARTNER_COLLECTION, { partnerId: "__connection_test__" })
-  .then(() => {
-    console.log("Data API reachable.");
+  .then(async () => {
+    console.log("MongoDB reachable.");
+    await closeDb();
     process.exit(0);
   })
   .catch((err) => {

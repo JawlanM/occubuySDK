@@ -1,75 +1,97 @@
 import dotenv from "dotenv";
+import { Db, MongoClient, ObjectId } from "mongodb";
 
 // Loads .env into process.env. First module in the require chain that needs env vars.
 dotenv.config();
 
-// mongodb+srv:// (port 27017) is blocked outbound on this host; plain HTTPS to Atlas's
-// Data API isn't. See README. Everything here goes through the Data API, not a live
-// driver connection.
-const BASE_URL = process.env.MONGODB_DATA_API_URL;
-const API_KEY = process.env.MONGODB_DATA_API_KEY;
-const DATA_SOURCE = process.env.MONGODB_DATA_SOURCE ?? "mongodb-atlas";
+// Talks to Atlas directly with the normal driver (one pooled connection per process).
+// This used to go through db-proxy over HTTPS because the old cPanel host blocked Mongo's
+// port; Render doesn't, so the extra hop is gone. The exported functions keep the exact
+// shapes the db-proxy version had, so routes and tests didn't change.
+const MONGODB_URI = process.env.MONGODB_URI;
 const DATABASE = process.env.MONGODB_DATABASE ?? "occubuy";
+
+// fail fast instead of hanging a renter's request when Atlas is unreachable
+const CONNECT_TIMEOUT_MS = 10_000;
+const QUERY_TIMEOUT_MS = 10_000;
 
 export const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 
-function ensureConfigured(): void {
-  if (!BASE_URL || !API_KEY) {
-    throw new Error(
-      "MONGODB_DATA_API_URL and MONGODB_DATA_API_KEY must be set - see backend/.env.example"
-    );
+let client: MongoClient | null = null;
+let dbPromise: Promise<Db> | null = null;
+
+// Connects on first use, so scripts and the server share the same code path. server.ts
+// calls it at startup too, so a bad MONGODB_URI stops the deploy instead of the first request.
+export function connectDb(): Promise<Db> {
+  if (!dbPromise) {
+    if (!MONGODB_URI) {
+      return Promise.reject(new Error("MONGODB_URI must be set - see backend/.env.example"));
+    }
+    try {
+      client = new MongoClient(MONGODB_URI, {
+        serverSelectionTimeoutMS: CONNECT_TIMEOUT_MS,
+        connectTimeoutMS: CONNECT_TIMEOUT_MS,
+      });
+    } catch (err) {
+      // a malformed URI throws here, before there's a promise to reject
+      return Promise.reject(err);
+    }
+    dbPromise = client
+      .connect()
+      .then((connected) => connected.db(DATABASE))
+      .catch((err) => {
+        // let the next call try again instead of caching the failure
+        dbPromise = null;
+        client = null;
+        throw err;
+      });
   }
+  return dbPromise;
 }
 
-async function callDataApi<T>(action: string, body: Record<string, unknown>): Promise<T> {
-  ensureConfigured();
-  const res = await fetch(`${BASE_URL}/action/${action}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "api-key": API_KEY as string,
-    },
-    body: JSON.stringify({
-      dataSource: DATA_SOURCE,
-      database: DATABASE,
-      ...body,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Data API ${action} failed: ${res.status} ${text}`);
-  }
-
-  return (await res.json()) as T;
+export async function closeDb(): Promise<void> {
+  const current = client;
+  client = null;
+  dbPromise = null;
+  if (current) await current.close();
 }
 
-// Data API returns _id as either a plain string or extended JSON ({ $oid }) depending
-// on config - normalize both.
-function oidToString(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && "$oid" in (value as Record<string, unknown>)) {
-    return (value as { $oid: string }).$oid;
-  }
-  return undefined;
+// Everything used to cross HTTP as JSON, so Dates were stored as ISO strings and any
+// ObjectId came back as a string. Doing the same round trip here keeps the stored data and
+// what callers get back exactly as before.
+function toPlain<T>(value: T): T {
+  return value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
-// Data API needs { $oid } to match by ObjectId, not a plain string comparison.
-function oidFilter(id: string): { $oid: string } {
-  return { $oid: id };
+// Filters use { _id: { $oid } } (the old Data API shape) or a plain id string; both become
+// a real ObjectId. Only a top-level _id is converted, same as db-proxy did.
+function resolveFilter(filter: Record<string, unknown>): Record<string, unknown> {
+  const plain = toPlain(filter);
+  const id = plain._id;
+  if (typeof id === "string" && OBJECT_ID_RE.test(id)) {
+    return { ...plain, _id: new ObjectId(id) };
+  }
+  if (id && typeof id === "object" && "$oid" in (id as Record<string, unknown>)) {
+    return { ...plain, _id: new ObjectId((id as { $oid: string }).$oid) };
+  }
+  return plain;
+}
+
+function serializeDoc<T>(doc: Record<string, unknown> | null): (T & { _id: string }) | null {
+  if (!doc) return null;
+  const { _id, ...rest } = doc;
+  return { ...(toPlain(rest) as T), _id: String(_id) };
 }
 
 export async function findOne<T>(
   collection: string,
   filter: Record<string, unknown>
 ): Promise<(T & { _id: string }) | null> {
-  const result = await callDataApi<{ document: (Record<string, unknown> & { _id: unknown }) | null }>(
-    "findOne",
-    { collection, filter }
-  );
-  if (!result.document) return null;
-  const id = oidToString(result.document._id) ?? String(result.document._id);
-  return { ...(result.document as T), _id: id };
+  const db = await connectDb();
+  const doc = await db
+    .collection(collection)
+    .findOne(resolveFilter(filter), { maxTimeMS: QUERY_TIMEOUT_MS });
+  return serializeDoc<T>(doc);
 }
 
 export async function findById<T>(
@@ -77,17 +99,16 @@ export async function findById<T>(
   id: string
 ): Promise<(T & { _id: string }) | null> {
   if (!OBJECT_ID_RE.test(id)) return null;
-  return findOne<T>(collection, { _id: oidFilter(id) });
+  return findOne<T>(collection, { _id: id });
 }
 
 export async function insertOne(
   collection: string,
   document: Record<string, unknown>
 ): Promise<string> {
-  const result = await callDataApi<{ insertedId: unknown }>("insertOne", { collection, document });
-  const id = oidToString(result.insertedId);
-  if (!id) throw new Error("Data API insertOne did not return an insertedId");
-  return id;
+  const db = await connectDb();
+  const result = await db.collection(collection).insertOne(toPlain(document));
+  return result.insertedId.toString();
 }
 
 // Raw updateOne: any filter + any update operators ($inc, $set...), applied atomically by Mongo.
@@ -99,14 +120,11 @@ export async function updateOne(
   filter: Record<string, unknown>,
   update: Record<string, unknown>
 ): Promise<{ matchedCount: number; modifiedCount: number }> {
-  const { _id, ...rest } = filter;
-  const resolved = typeof _id === "string" ? { ...rest, _id: oidFilter(_id) } : filter;
-  const result = await callDataApi<{ matchedCount?: number; modifiedCount?: number }>("updateOne", {
-    collection,
-    filter: resolved,
-    update,
-  });
-  return { matchedCount: result.matchedCount ?? 0, modifiedCount: result.modifiedCount ?? 0 };
+  const db = await connectDb();
+  const result = await db
+    .collection(collection)
+    .updateOne(resolveFilter(filter), toPlain(update), { maxTimeMS: QUERY_TIMEOUT_MS });
+  return { matchedCount: result.matchedCount, modifiedCount: result.modifiedCount };
 }
 
 export async function updateById(
@@ -114,9 +132,5 @@ export async function updateById(
   id: string,
   update: Record<string, unknown>
 ): Promise<void> {
-  await callDataApi("updateOne", {
-    collection,
-    filter: { _id: oidFilter(id) },
-    update: { $set: update },
-  });
+  await updateOne(collection, { _id: id }, { $set: update });
 }
