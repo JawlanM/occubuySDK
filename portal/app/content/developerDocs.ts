@@ -136,7 +136,7 @@ export const apiReference = {
 
 while it's still being worked out:
 { "status": "PROCESSING", "retryAfter": 3 }`,
-      errors: ["AUTH_REQUIRED", "NOT_SHARED", "SCORE_NOT_FOUND", "SCORE_WITHDRAWN"],
+      errors: ["AUTH_REQUIRED", "NOT_SHARED", "SCORE_NOT_FOUND"],
     },
     {
       method: "POST",
@@ -209,7 +209,6 @@ while it's still being worked out:
     ["INVALID_SCORE_STATE", "409", "Not possible in the score's current state, for example completing it twice or sharing it before it's ready."],
     ["NOT_SHARED", "403", "The renter hasn't shared this score with you."],
     ["ALREADY_DECLINED", "409", "The renter declined this score, so it can't be shared."],
-    ["SCORE_WITHDRAWN", "410", "The renter withdrew this score in the Occubuy app. Its data has been deleted."],
     ["INVALID_PHONE", "400", "Not an Australian mobile number."],
     ["OTP_RATE_LIMITED", "429", "Too many codes for this number. retryAfterSeconds (and the Retry-After header) says how long to wait."],
     ["INVALID_VERIFY_PAYLOAD", "400", "The code isn't 6 digits."],
@@ -343,7 +342,7 @@ export const sdkFlow = {
     { title: "Colours", body: "Set under Widget colours. Button text switches between dark and white to stay readable on your colour." },
   ] as DocStep[],
   knownIssues: [
-    "Scores are placeholders: a random number until Occubuy connects its real scoring. The flow, bands, sharing and withdrawal are real.",
+    "Scores are placeholders: a random number until Occubuy connects its real scoring. The flow, bands and sharing are real.",
     "Some Yodlee test banks (CDR Sandbox) open the bank in a new tab even though FastLink is set to stay inside the widget. If the page reloads when the renter comes back after the score exists, the widget picks up again; a bank step that was still open has to be done again.",
     "The renter phone check (OTP) is ready on the backend but not shown in the widget until an SMS provider is connected.",
   ],
@@ -365,16 +364,13 @@ export const consent = {
     "consent box before anything is sent. Occubuy never sees their online banking login or password, and nothing in their account " +
     "can be moved or changed.",
   withdrawal: [
-    { title: "Up to 12 months", body: "A renter can withdraw a score for up to 12 months after sharing it. They do it in the Occubuy mobile app, not in the widget or on your site." },
     {
-      title: "What withdrawing does",
+      title: "Not available yet",
       body:
-        "The score and the renter's details are deleted from Occubuy, the lead disappears from your Shared Scores, and reading it " +
-        "through the API returns 410 SCORE_WITHDRAWN. Only ids and dates are kept, so the change still reaches your portal if it was offline at the time.",
+        "Renters will be able to withdraw a shared score from the Occubuy mobile app, for up to 12 months after sharing it. " +
+        "That isn't switched on yet, so for now a shared score stays in your Shared Scores.",
     },
     { title: "After 12 months", body: "The right to withdraw ends. The data isn't deleted automatically at that point." },
   ] as DocStep[],
-  appTeamNote:
-    "For Occubuy's app team: POST /api/internal/scores/{scoreId}/withdraw with the X-App-Secret header. It can't be called with a partner key.",
   openQuestions: ["How long data is kept once the 12 months are over isn't decided yet. It's with Occubuy."],
 };

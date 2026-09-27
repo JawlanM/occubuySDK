@@ -18,9 +18,6 @@ export default function ConsentPage() {
 
       <DocSection title="Withdrawal and retention">
         <Steps steps={consent.withdrawal} />
-        <div className="mt-5">
-          <Notes notes={[consent.appTeamNote]} />
-        </div>
       </DocSection>
 
       <DocSection title="Still open" last>

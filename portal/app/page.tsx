@@ -49,7 +49,7 @@ export default function HomePage() {
           >
             <p style={{ fontFamily: "var(--font-display)", fontWeight: 600 }}>Consent & Data</p>
             <p className="mt-1 text-sm" style={{ color: "var(--text-body)" }}>
-              What renters agree to, what you see and when, withdrawal.
+              What renters agree to, what you see and when.
             </p>
           </Link>
         </div>
