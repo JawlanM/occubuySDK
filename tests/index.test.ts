@@ -909,3 +909,115 @@ describe("try again, resume, cleanup", () => {
     }
   });
 });
+
+// Accessibility: larger text, dark mode, high contrast, and screen reader support
+describe("accessibility", () => {
+  const button = (c: HTMLElement, key: "l" | "d" | "h") => c.querySelector<HTMLButtonElement>(`[data-occubuy-a11y="${key}"]`)!;
+  const startWidget = (extra: Record<string, unknown> = {}) =>
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, ...extra }).start();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+  });
+
+  it("has the three display buttons, labelled and off by default", () => {
+    const container = makeContainer();
+    startWidget();
+    for (const [key, label] of [["l", "Larger text"], ["d", "Dark mode"], ["h", "High contrast"]] as const) {
+      expect(button(container, key).getAttribute("aria-label")).toBe(label);
+      expect(button(container, key).getAttribute("aria-pressed")).toBe("false");
+    }
+    expect(container.querySelector('[role="group"]')?.getAttribute("aria-label")).toBe("Display options");
+  });
+
+  it("each button switches its mode on and off and is remembered on this device", () => {
+    const container = makeContainer();
+    startWidget();
+    const classFor = { l: "occubuy-large", d: "occubuy-dark", h: "occubuy-hc" } as const;
+    for (const key of ["l", "d", "h"] as const) {
+      button(container, key).click();
+      expect(container.classList.contains(classFor[key])).toBe(true);
+      expect(button(container, key).getAttribute("aria-pressed")).toBe("true");
+    }
+    expect(JSON.parse(localStorage.getItem("occubuy-a11y")!)).toEqual({ l: true, d: true, h: true });
+
+    button(container, "d").click();
+    expect(container.classList.contains("occubuy-dark")).toBe(false);
+
+    // next visit: same choices
+    container.remove();
+    const next = makeContainer();
+    startWidget();
+    expect(next.classList.contains("occubuy-large")).toBe(true);
+    expect(next.classList.contains("occubuy-dark")).toBe(false);
+    expect(button(next, "h").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("uses the partner's defaults, and the renter's own choice wins over them", () => {
+    const container = makeContainer();
+    startWidget({ accessibility: { theme: "dark", largeText: true } });
+    expect(container.classList.contains("occubuy-dark")).toBe(true);
+    expect(container.classList.contains("occubuy-large")).toBe(true);
+
+    button(container, "d").click();
+    container.remove();
+    const next = makeContainer();
+    startWidget({ accessibility: { theme: "dark" } });
+    expect(next.classList.contains("occubuy-dark")).toBe(false);
+  });
+
+  it("follows the device: auto theme and 'more contrast'", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("dark") || query.includes("more") }));
+    const container = makeContainer();
+    startWidget({ accessibility: { theme: "auto" } });
+    expect(container.classList.contains("occubuy-dark")).toBe(true);
+    expect(container.classList.contains("occubuy-hc")).toBe(true);
+  });
+
+  it("the partner can hide the buttons", () => {
+    const container = makeContainer();
+    startWidget({ accessibility: { showControls: false } });
+    expect(container.classList.contains("occubuy-no-controls")).toBe(true);
+  });
+
+  it("the modes stay applied when the screen changes", async () => {
+    const container = makeContainer();
+    startWidget({ accessibility: { theme: "dark" } });
+    const checkbox = container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="error"]')).not.toBeNull());
+    expect(container.classList.contains("occubuy-dark")).toBe(true);
+    expect(button(container, "d").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("screen readers: labelled region, decorative icons hidden, status and alerts announced", async () => {
+    const container = makeContainer();
+    startWidget();
+    expect(container.getAttribute("role")).toBe("region");
+    expect(container.getAttribute("aria-label")).toBe("Occubuy Score");
+    for (const el of container.querySelectorAll(".occubuy-dot, .occubuy-btn-icon, .occubuy-disclosure-icon, .occubuy-step-dot")) {
+      expect(el.getAttribute("aria-hidden")).toBe("true");
+    }
+    // the first screen doesn't pull focus away from the partner's page
+    expect(document.activeElement).toBe(document.body);
+
+    const checkbox = container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+    await vi.waitFor(() => expect(container.querySelector('[role="alert"]')).not.toBeNull());
+    // a new screen moves focus to it, so it gets read out
+    expect(document.activeElement).toBe(container.querySelector('[role="alert"]'));
+  });
+
+  it("the calculating screen announces its status", async () => {
+    sessionStorage.setItem("occubuy-flow:" + "pk_sandbox_test".slice(-12), JSON.stringify({ scoreId: "s1", sessionToken: "t", at: Date.now() }));
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {}))); // stays on the calculating screen
+    const container = makeContainer();
+    startWidget();
+    expect(container.querySelector('[role="status"]')?.textContent).toMatch(/few seconds/);
+    expect(container.querySelector(".occubuy-spinner")?.getAttribute("aria-hidden")).toBe("true");
+  });
+});

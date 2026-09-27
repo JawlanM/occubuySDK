@@ -58,6 +58,21 @@ export interface OccubuyBranding {
   headingColor?: string;
 }
 
+/**
+ * Starting display settings. The renter can change each one with the buttons in the widget's
+ * header, and their choice is remembered on their device (it wins over these defaults).
+ */
+export interface OccubuyAccessibility {
+  /** Bigger text throughout. Default false. */
+  largeText?: boolean;
+  /** "light" (default), "dark", or "auto" to follow the renter's device setting. */
+  theme?: "light" | "dark" | "auto";
+  /** Stronger text and borders. Default: on when the renter's device asks for more contrast. */
+  highContrast?: boolean;
+  /** Show the three display buttons in the widget's header. Default true. */
+  showControls?: boolean;
+}
+
 export interface OccubuyInitConfig {
   apiKey: string;
   /** Where to render the widget, either a CSS selector like "#occubuy-widget" or the actual element. */
@@ -65,6 +80,8 @@ export interface OccubuyInitConfig {
   applicant: OccubuyApplicant;
   /** Optional colour overrides - see OccubuyBranding. Everything else about the layout is fixed. */
   branding?: OccubuyBranding;
+  /** Larger text, dark mode and high contrast defaults - see OccubuyAccessibility. */
+  accessibility?: OccubuyAccessibility;
   /**
    * Where the backend lives. The hosted script (sdk/v1/occubuy-sdk.js) already defaults to the
    * deployed backend, so partners leave this out. The dist/ builds default to localhost:8787
@@ -217,33 +234,34 @@ function normalizeFastLinkSession(raw: unknown): FastLinkSession | null {
 // Widget styles, injected once. Every class is "occubuy-"-prefixed to avoid clashing
 // with the partner's own page styles.
 const STYLE_ID = "occubuy-style";
+const A11Y_KEY = "occubuy-a11y";
 const FONT_LINK_ID = "occubuy-font-link";
 
 const WIDGET_CSS = `
 .occubuy-container {
   --ob-acc: var(--occubuy-accent, #F87954); --ob-acc2: var(--occubuy-accent-dark, #E86A46);
   --ob-on: var(--occubuy-on-accent, #1F1719); --ob-head: var(--occubuy-heading, #1F1719);
-  --ob-ink: #1F1719; --ob-body: #6C5359; --ob-muted: #8F7880; --ob-faint: #A08D93;
-  --ob-line: #EBDBDA; --ob-line2: #D6C2C5; --ob-sunk: #F7EBE7;
-  --ob-ease: cubic-bezier(.2,0,0,1); --ob-disp: "Outfit", ui-sans-serif, system-ui, sans-serif;
-  font: 400 14px/1.6 "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--ob-body); background: #FEF6F0; border: 1px solid var(--ob-line); border-radius: 16px;
+  --ob-ink: #1F1719; --ob-body: #6C5359; --ob-muted: #7D656C;
+  --ob-line: #EBDBDA; --ob-line2: #D6C2C5; --ob-sunk: #F7EBE7; --ob-bg: #FEF6F0; --ob-card: #fff; --ob-bad: #A3271F;
+  --ob-s: 1; --ob-ease: cubic-bezier(.2,0,0,1); --ob-disp: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font: 400 calc(14px*var(--ob-s))/1.6 "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ob-body); background: var(--ob-bg); border: 1px solid var(--ob-line); border-radius: 16px;
   padding: 20px; max-width: 420px; box-sizing: border-box;
   box-shadow: 0 1px 2px rgba(31,23,25,.06), 0 12px 28px -18px rgba(31,23,25,.4);
 }
 .occubuy-container * { box-sizing: border-box; }
-.occubuy-brand { display: flex; align-items: center; gap: 8px; font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 16px; }
+.occubuy-brand { display: flex; align-items: center; gap: 8px; font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 16px; }
 .occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ob-acc); flex-shrink: 0; }
-.occubuy-heading { font: 600 20px/1.3 var(--ob-disp); letter-spacing: -.01em; color: var(--ob-head); margin: 0 0 8px; }
+.occubuy-heading { font: 600 calc(20px*var(--ob-s))/1.3 var(--ob-disp); letter-spacing: -.01em; color: var(--ob-head); margin: 0 0 8px; }
 .occubuy-sub { color: var(--ob-body); margin: 0 0 20px; }
 @keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .occubuy-fade-in { animation: occubuy-fade-in 200ms var(--ob-ease); }
 .occubuy-consent { display: flex; gap: 12px; align-items: flex-start; background: var(--ob-sunk); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
 .occubuy-consent input { margin: 2px 0 0; width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--ob-acc); cursor: pointer; }
-.occubuy-consent label { font-size: 13px; color: var(--ob-ink); line-height: 1.6; cursor: pointer; }
+.occubuy-consent label { font-size: calc(13px*var(--ob-s)); color: var(--ob-ink); line-height: 1.6; cursor: pointer; }
 .occubuy-btn {
   width: 100%; min-height: 48px; padding: 12px 16px; border: 1px solid transparent; border-radius: 12px;
-  font: 600 14.5px/1 var(--ob-disp); cursor: pointer; color: var(--ob-on); background: var(--ob-acc);
+  font: 600 calc(14.5px*var(--ob-s))/1 var(--ob-disp); cursor: pointer; color: var(--ob-on); background: var(--ob-acc);
   transition: background-color 200ms var(--ob-ease), transform 120ms var(--ob-ease);
 }
 .occubuy-btn:hover:not(:disabled) { background: var(--ob-acc2); }
@@ -257,32 +275,48 @@ const WIDGET_CSS = `
 .occubuy-spinner-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 0; }
 .occubuy-spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--ob-line); border-top-color: var(--ob-acc); animation: occubuy-spin .8s linear infinite; }
 @keyframes occubuy-spin { to { transform: rotate(360deg); } }
-.occubuy-spinner-text { font-size: 13px; color: var(--ob-muted); text-align: center; }
+.occubuy-spinner-text { font-size: calc(13px*var(--ob-s)); color: var(--ob-body); text-align: center; }
 .occubuy-success { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 20px; }
-.occubuy-check { width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--ob-acc) 16%, #fff); color: var(--ob-ink); display: flex; align-items: center; justify-content: center; font: 600 22px/1 var(--ob-disp); margin-bottom: 12px; }
-.occubuy-score-label { font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); }
-.occubuy-score-value { font: 700 40px/1.05 var(--ob-disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ob-head); margin: 8px 0 12px; }
-.occubuy-score-band { display: inline-block; font: 600 12.5px/1.2 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 6px 12px; border-radius: 8px; }
+.occubuy-check { width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--ob-acc) 16%, var(--ob-card)); color: var(--ob-ink); display: flex; align-items: center; justify-content: center; font: 600 calc(22px*var(--ob-s))/1 var(--ob-disp); margin-bottom: 12px; }
+.occubuy-score-label { font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-body); margin: 0; }
+.occubuy-score-value { font: 700 calc(40px*var(--ob-s))/1.05 var(--ob-disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ob-head); margin: 8px 0 12px; }
+.occubuy-score-band { display: inline-block; font: 600 calc(12.5px*var(--ob-s))/1.2 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 6px 12px; border-radius: 8px; }
 .occubuy-improve { background: var(--ob-sunk); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; }
-.occubuy-improve-label { font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 4px; }
-.occubuy-improve-text { font-size: 13px; color: var(--ob-body); margin: 0; }
-.occubuy-error { border: 1px solid #A3271F; color: #A3271F; background: #fff; border-radius: 12px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px; }
-.occubuy-card { background: #fff; border: 1px solid var(--ob-line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
-.occubuy-card-title { font: 600 16px/1.35 var(--ob-disp); color: var(--ob-head); margin: 0 0 4px; }
-.occubuy-card-sub { font-size: 13px; color: var(--ob-body); margin: 0 0 16px; }
+.occubuy-improve-label { font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 4px; }
+.occubuy-improve-text { font-size: calc(13px*var(--ob-s)); color: var(--ob-body); margin: 0; }
+.occubuy-error { border: 1px solid var(--ob-bad); color: var(--ob-bad); background: var(--ob-card); border-radius: 12px; padding: 12px 16px; font-size: calc(13px*var(--ob-s)); margin-bottom: 16px; }
+.occubuy-card { background: var(--ob-card); border: 1px solid var(--ob-line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+.occubuy-card-title { font: 600 calc(16px*var(--ob-s))/1.35 var(--ob-disp); color: var(--ob-head); margin: 0 0 4px; }
+.occubuy-card-sub { font-size: calc(13px*var(--ob-s)); color: var(--ob-body); margin: 0 0 16px; }
 .occubuy-steps { list-style: none; margin: 0 0 20px; padding: 0; }
 .occubuy-step { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 16px; }
 .occubuy-step:last-child { padding-bottom: 0; }
 .occubuy-step-dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--ob-acc); flex-shrink: 0; position: relative; }
 .occubuy-step:not(:last-child) .occubuy-step-dot::after { content: ""; position: absolute; top: 8px; left: 3px; width: 2px; height: 22px; background: var(--ob-line); }
-.occubuy-step-text { font-size: 14px; color: var(--ob-ink); line-height: 1.5; }
+.occubuy-step-text { font-size: calc(14px*var(--ob-s)); color: var(--ob-ink); line-height: 1.5; }
 .occubuy-btn-icon { display: inline-block; margin-right: 8px; }
-.occubuy-provider-row { text-align: center; font-size: 12px; color: var(--ob-muted); margin-top: 12px; }
-.occubuy-provider-badge { display: inline-flex; font: 600 11px/1.4 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
-.occubuy-disclosure { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--ob-muted); line-height: 1.5; margin-top: 16px; }
+.occubuy-provider-row { text-align: center; font-size: calc(12px*var(--ob-s)); color: var(--ob-muted); margin-top: 12px; }
+.occubuy-provider-badge { display: inline-flex; font: 600 calc(11px*var(--ob-s))/1.4 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+.occubuy-disclosure { display: flex; align-items: flex-start; gap: 8px; font-size: calc(12.5px*var(--ob-s)); color: var(--ob-body); line-height: 1.5; margin-top: 16px; }
 .occubuy-disclosure-icon { flex-shrink: 0; }
-.occubuy-footnote { font-size: 12px; color: var(--ob-faint); text-align: center; margin: 0; }
+.occubuy-footnote { font-size: calc(12px*var(--ob-s)); color: var(--ob-muted); text-align: center; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .occubuy-container * { animation: none !important; transition: none !important; } }
+.occubuy-a11y { margin-left: auto; display: flex; gap: 4px; }
+.occubuy-a11y button { min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid var(--ob-line2); border-radius: 8px; background: transparent; color: var(--ob-ink); font: 600 13px/1 var(--ob-disp); letter-spacing: 0; cursor: pointer; }
+.occubuy-a11y button[aria-pressed="true"] { background: var(--ob-ink); color: var(--ob-bg); border-color: var(--ob-ink); }
+.occubuy-a11y button:focus-visible, .occubuy-consent input:focus-visible { outline: 2px solid var(--ob-acc); outline-offset: 2px; }
+.occubuy-container [tabindex="-1"]:focus { outline: none; }
+.occubuy-no-controls .occubuy-a11y { display: none; }
+.occubuy-large .occubuy-container { --ob-s: 1.25; }
+.occubuy-dark .occubuy-container {
+  --ob-ink: #FEF6F0; --ob-head: #FEF6F0; --ob-body: #C9B5BA; --ob-muted: #A9929A; --ob-line: #3D2F33; --ob-line2: #4A393E;
+  --ob-sunk: #302428; --ob-bg: #1A1416; --ob-card: #241C1E; --ob-bad: #FFB4A8; --ob-acc2: var(--occubuy-accent-dark, #FA8C6B);
+  box-shadow: 0 1px 2px rgba(0,0,0,.5), 0 16px 40px -20px rgba(0,0,0,.9);
+}
+.occubuy-hc .occubuy-container { --ob-body: var(--ob-ink); --ob-muted: var(--ob-ink); --ob-line: var(--ob-ink); --ob-line2: var(--ob-ink); --ob-head: var(--ob-ink); }
+.occubuy-hc .occubuy-btn { border-color: var(--ob-ink); }
+.occubuy-hc .occubuy-btn:disabled { opacity: 1; background: var(--ob-card); color: var(--ob-ink); border-style: dashed; }
+.occubuy-hc .occubuy-btn:focus-visible, .occubuy-hc .occubuy-a11y button:focus-visible { outline-width: 3px; }
 `;
 
 function injectStyles(): void {
@@ -312,7 +346,12 @@ function injectStyles(): void {
 // Static HTML strings only - dynamic values (network/postMessage data) are set via
 // textContent afterward, never interpolated.
 function brandHeader(): string {
-  return `<div class="occubuy-brand"><span class="occubuy-dot"></span> Occubuy Score</div>`;
+  return `<div class="occubuy-brand"><span class="occubuy-dot" aria-hidden="true"></span> Occubuy Score
+    <span class="occubuy-a11y" role="group" aria-label="Display options">
+      <button type="button" data-occubuy-a11y="l" aria-pressed="false" aria-label="Larger text" title="Larger text">A+</button>
+      <button type="button" data-occubuy-a11y="d" aria-pressed="false" aria-label="Dark mode" title="Dark mode">&#9790;</button>
+      <button type="button" data-occubuy-a11y="h" aria-pressed="false" aria-label="High contrast" title="High contrast">&#9680;</button>
+    </span></div>`;
 }
 
 // Single screen per Nishad's 25 Aug direction (previously a 3-step panel flow) - all the
@@ -326,16 +365,16 @@ function consentTemplate(): string {
   return `
     <div class="occubuy-container occubuy-fade-in" data-occubuy-step="consent">
       ${brandHeader()}
-      <h2 class="occubuy-heading">Verify your rental score</h2>
+      <h2 class="occubuy-heading" tabindex="-1">Verify your rental score</h2>
       <p class="occubuy-sub">A strong Occubuy Score can help back up your application. It's calculated from your real bank transaction history, never a credit check.</p>
 
       <div class="occubuy-card">
         <div class="occubuy-card-title">Get started</div>
         <p class="occubuy-card-sub">Verify your income and spending through your own bank, in a few quick steps.</p>
         <ul class="occubuy-steps">
-          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Select your bank</span></li>
-          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Log in to your account</span></li>
-          <li class="occubuy-step"><span class="occubuy-step-dot"></span><span class="occubuy-step-text">Review your details and provide consent</span></li>
+          <li class="occubuy-step"><span class="occubuy-step-dot" aria-hidden="true"></span><span class="occubuy-step-text">Select your bank</span></li>
+          <li class="occubuy-step"><span class="occubuy-step-dot" aria-hidden="true"></span><span class="occubuy-step-text">Log in to your account</span></li>
+          <li class="occubuy-step"><span class="occubuy-step-dot" aria-hidden="true"></span><span class="occubuy-step-text">Review your details and provide consent</span></li>
         </ul>
 
         <div class="occubuy-consent">
@@ -344,13 +383,13 @@ function consentTemplate(): string {
         </div>
 
         <button type="button" class="occubuy-btn" data-occubuy-consent-submit disabled>
-          <span class="occubuy-btn-icon">&#8635;</span>Verify with Occubuy Score
+          <span class="occubuy-btn-icon" aria-hidden="true">&#8635;</span>Verify with Occubuy Score
         </button>
 
         <div class="occubuy-provider-row">Secured by<span class="occubuy-provider-badge">Yodlee</span></div>
 
         <div class="occubuy-disclosure">
-          <span class="occubuy-disclosure-icon">&#9432;</span>
+          <span class="occubuy-disclosure-icon" aria-hidden="true">&#9432;</span>
           <span>We never see your online banking login or password, and nothing in your account can be moved or changed.</span>
         </div>
       </div>
@@ -364,7 +403,7 @@ function bankConnectionTemplate(): string {
   return `
     <div class="occubuy-container" data-occubuy-step="bankConnection">
       ${brandHeader()}
-      <h2 class="occubuy-heading">Connect your bank</h2>
+      <h2 class="occubuy-heading" tabindex="-1">Connect your bank</h2>
       <p class="occubuy-sub">Select the bank your income is paid into to continue.</p>
       <div class="occubuy-iframe-wrap" data-occubuy-fastlink-wrap>
         <iframe
@@ -383,10 +422,10 @@ function pollingTemplate(): string {
   return `
     <div class="occubuy-container" data-occubuy-step="score">
       ${brandHeader()}
-      <h2 class="occubuy-heading">Calculating your score</h2>
+      <h2 class="occubuy-heading" tabindex="-1">Calculating your score</h2>
       <div class="occubuy-spinner-wrap">
-        <div class="occubuy-spinner"></div>
-        <div class="occubuy-spinner-text">This usually takes a few seconds...</div>
+        <div class="occubuy-spinner" aria-hidden="true"></div>
+        <div class="occubuy-spinner-text" role="status">This usually takes a few seconds...</div>
       </div>
     </div>
   `;
@@ -397,8 +436,8 @@ function successTemplate(): string {
     <div class="occubuy-container" data-occubuy-step="score">
       ${brandHeader()}
       <div class="occubuy-success">
-        <div class="occubuy-check">&#10003;</div>
-        <div class="occubuy-score-label">Your Occubuy Score</div>
+        <div class="occubuy-check" aria-hidden="true">&#10003;</div>
+        <h2 class="occubuy-score-label" tabindex="-1">Your Occubuy Score</h2>
         <div class="occubuy-score-value" data-occubuy-score-value></div>
         <div class="occubuy-score-band" data-occubuy-score-band></div>
       </div>
@@ -417,7 +456,7 @@ function errorTemplate(): string {
   return `
     <div class="occubuy-container" data-occubuy-step="error">
       ${brandHeader()}
-      <div class="occubuy-error" role="alert" data-occubuy-error-message></div>
+      <div class="occubuy-error" role="alert" tabindex="-1" data-occubuy-error-message></div>
       <button type="button" class="occubuy-btn" data-occubuy-error-retry hidden>Try again</button>
       <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-error-dismiss>Close</button>
     </div>
@@ -473,6 +512,61 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     const apiBase = resolved.apiBase ?? DEFAULT_API_BASE;
 
     injectStyles();
+    if (!containerEl.hasAttribute("role")) containerEl.setAttribute("role", "region");
+    if (!containerEl.hasAttribute("aria-label")) containerEl.setAttribute("aria-label", "Occubuy Score");
+
+    // Display settings: the partner's defaults, then whatever this renter picked before on this
+    // device. l = larger text, d = dark, h = high contrast.
+    const a11y = resolved.accessibility ?? {};
+    const prefersMedia = (query: string): boolean => {
+      try {
+        return window.matchMedia?.(query).matches ?? false;
+      } catch {
+        return false;
+      }
+    };
+    const prefs: Record<"l" | "d" | "h", boolean> = {
+      l: !!a11y.largeText,
+      d: a11y.theme === "dark" || (a11y.theme === "auto" && prefersMedia("(prefers-color-scheme: dark)")),
+      h: a11y.highContrast ?? prefersMedia("(prefers-contrast: more)"),
+    };
+    try {
+      Object.assign(prefs, JSON.parse(localStorage.getItem(A11Y_KEY) ?? "{}"));
+    } catch {
+      /* defaults only */
+    }
+    containerEl.classList.toggle("occubuy-no-controls", a11y.showControls === false);
+    function applyPrefs(): void {
+      containerEl.classList.toggle("occubuy-large", prefs.l);
+      containerEl.classList.toggle("occubuy-dark", prefs.d);
+      containerEl.classList.toggle("occubuy-hc", prefs.h);
+      containerEl.querySelectorAll<HTMLElement>("[data-occubuy-a11y]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(prefs[button.dataset.occubuyA11y as "l" | "d" | "h"]));
+      });
+    }
+    containerEl.addEventListener("click", (event) => {
+      const button = (event.target as Element | null)?.closest?.<HTMLElement>("[data-occubuy-a11y]");
+      const key = button?.dataset.occubuyA11y as "l" | "d" | "h" | undefined;
+      if (!key) return;
+      prefs[key] = !prefs[key];
+      try {
+        localStorage.setItem(A11Y_KEY, JSON.stringify(prefs));
+      } catch {
+        /* works for this visit only */
+      }
+      applyPrefs();
+    });
+
+    // Every screen goes through here. After the first screen, focus moves to the new screen's
+    // heading (or its error), so a screen reader announces where the renter is now. The first
+    // screen never takes focus away from the partner's page.
+    let firstScreen = true;
+    function show(html: string): void {
+      containerEl.innerHTML = html;
+      applyPrefs();
+      if (!firstScreen) containerEl.querySelector<HTMLElement>("h2, [role=alert]")?.focus();
+      firstScreen = false;
+    }
 
     // Sets custom properties on the container itself, not its innerHTML - survives every
     // later containerEl.innerHTML = ... swap between screens.
@@ -579,7 +673,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     // retry: where "Try again" goes back to. Left out for problems a retry can't fix.
     function fail(code: OccubuyErrorCode, message: string, retry?: () => void): void {
       cleanup();
-      containerEl.innerHTML = errorTemplate();
+      show(errorTemplate());
       const messageEl = containerEl.querySelector("[data-occubuy-error-message]");
       const retryBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-error-retry]");
       const dismissBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-error-dismiss]");
@@ -597,7 +691,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     }
 
     function renderConsent(): void {
-      containerEl.innerHTML = consentTemplate();
+      show(consentTemplate());
 
       const checkbox = containerEl.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]");
       const submitBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]");
@@ -661,7 +755,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     // not a URL, and its success/exit events can arrive in either order - both handled
     // by buildFastLinkForm/parseFastLinkMessage/FastLinkFlowState rather than reimplemented here.
     function renderBankConnection(scoreId: string, session: FastLinkSession): void {
-      containerEl.innerHTML = bankConnectionTemplate();
+      show(bankConnectionTemplate());
       const cancelBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-bank-cancel]");
       if (!cancelBtn) return;
       cancelBtn.addEventListener("click", cancel);
@@ -822,7 +916,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         .catch(() => {
           if (!cancelled) {
             fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.", () => {
-              containerEl.innerHTML = pollingTemplate();
+              show(pollingTemplate());
               completeBankConnection(scoreId, providerData);
             });
           }
@@ -830,7 +924,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     }
 
     function renderScorePolling(scoreId: string): void {
-      containerEl.innerHTML = pollingTemplate();
+      show(pollingTemplate());
       poll(scoreId);
     }
 
@@ -880,7 +974,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       const verifiedAt = new Date().toISOString();
       let settled = false;
 
-      containerEl.innerHTML = successTemplate();
+      show(successTemplate());
       const scoreValueEl = containerEl.querySelector("[data-occubuy-score-value]");
       const scoreBandEl = containerEl.querySelector("[data-occubuy-score-band]");
       const improveTextEl = containerEl.querySelector("[data-occubuy-improve-text]");
@@ -950,7 +1044,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     // bank sent the renter back). Anything unexpected just starts over from consent.
     function resume(saved: { scoreId: string; sessionToken: string }): void {
       sessionToken = saved.sessionToken;
-      containerEl.innerHTML = pollingTemplate();
+      show(pollingTemplate());
       fetch(`${apiBase}/api/scores/${encodeURIComponent(saved.scoreId)}`, { headers: authHeaders() })
         .then((res) => (res.ok ? (res.json() as Promise<{ status?: string; score?: { value?: number } }>) : null))
         .then((data) => {
