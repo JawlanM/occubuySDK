@@ -30,8 +30,9 @@ export interface IUserScore {
   userId: string;
   // IPartner._id. Scopes partner-key GET access to this score.
   partnerId: string;
-  applicant: IApplicant;
-  status: "CREATED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  // removed when the renter withdraws (routes/withdraw.routes.ts)
+  applicant?: IApplicant;
+  status: "CREATED" | "PROCESSING" | "COMPLETED" | "FAILED" | "WITHDRAWN";
   linkedAccount?: ILinkedAccount;
   score?: IScoreData;
   // hash of the token POST /scores hands back once - every later call for this scoreId
@@ -46,6 +47,9 @@ export interface IUserScore {
   // null/missing on a shared score = not there yet, the retry sweep picks it up
   leadPushedAt?: string | null;
   leadPushSweepId?: string;
+  // withdrawal: when it happened, and when the portal confirmed it dropped the lead
+  withdrawnAt?: string;
+  leadWithdrawnAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

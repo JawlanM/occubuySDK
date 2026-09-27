@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { findOne, updateById } from "../config/dataApi";
-import { pushLeadToPortal } from "../config/portalClient";
+import { pushLeadToPortal, withdrawLeadFromPortal } from "../config/portalClient";
 import { IUserScore, USERSCORE_COLLECTION } from "../models/Userscore.model";
 import { logEvent } from "../utils/auditLog";
 import { scoreBand } from "../utils/band";
@@ -71,6 +71,30 @@ export async function pushLeadWithRetry(scoreDoc: ShareableScore, delays: number
   return false;
 }
 
+// Same retry pattern for a withdrawal: the portal has to drop the lead. leadWithdrawnAt records
+// that it did; the sweep below re-sends any it didn't confirm.
+export async function withdrawLeadWithRetry(
+  scoreDoc: Pick<IUserScore, "_id" | "partnerId">,
+  delays: number[] = retryDelays()
+): Promise<boolean> {
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    if (attempt > 0) await sleep(delays[attempt - 1] ?? 0);
+    try {
+      await withdrawLeadFromPortal(scoreDoc._id);
+    } catch {
+      continue;
+    }
+    await updateById(USERSCORE_COLLECTION, scoreDoc._id, { leadWithdrawnAt: new Date().toISOString() });
+    return true;
+  }
+  logEvent("score.portal_sync_failed", {
+    partnerId: scoreDoc.partnerId,
+    scoreId: scoreDoc._id,
+    detail: { attempts: delays.length + 1, action: "withdraw" },
+  });
+  return false;
+}
+
 const SWEEP_MAX = 500;
 
 // Walks every shared score the portal hasn't confirmed and pushes it again, one attempt each
@@ -78,21 +102,37 @@ const SWEEP_MAX = 500;
 // Uses findOne + a per-run marker instead of a "find many" so it works with the db-proxy's
 // existing actions: each score gets stamped with this run's id before it's pushed, so the next
 // findOne moves on to the next one whether the push worked or not. Declined scores are skipped.
-export async function retryPendingLeadPushes(): Promise<{ pushed: number; failed: number }> {
+export async function retryPendingLeadPushes(): Promise<{ pushed: number; failed: number; withdrawn: number }> {
   const sweepId = randomUUID();
-  const result = { pushed: 0, failed: 0 };
+  const result = { pushed: 0, failed: 0, withdrawn: 0 };
 
   for (let i = 0; i < SWEEP_MAX; i++) {
     const scoreDoc = await findOne<IUserScore>(USERSCORE_COLLECTION, {
       sharedAt: { $ne: null },
       declinedAt: null,
       leadPushedAt: null,
+      status: { $ne: "WITHDRAWN" },
       leadPushSweepId: { $ne: sweepId },
     });
     if (!scoreDoc) break;
 
     await updateById(USERSCORE_COLLECTION, scoreDoc._id, { leadPushSweepId: sweepId });
     if (await pushLeadWithRetry(scoreDoc, [])) result.pushed += 1;
+    else result.failed += 1;
+  }
+
+  // withdrawn scores whose lead the portal hasn't confirmed dropping
+  for (let i = 0; i < SWEEP_MAX; i++) {
+    const scoreDoc = await findOne<IUserScore>(USERSCORE_COLLECTION, {
+      status: "WITHDRAWN",
+      sharedAt: { $ne: null },
+      leadWithdrawnAt: null,
+      leadPushSweepId: { $ne: sweepId },
+    });
+    if (!scoreDoc) break;
+
+    await updateById(USERSCORE_COLLECTION, scoreDoc._id, { leadPushSweepId: sweepId });
+    if (await withdrawLeadWithRetry(scoreDoc, [])) result.withdrawn += 1;
     else result.failed += 1;
   }
 

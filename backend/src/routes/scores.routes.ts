@@ -211,6 +211,10 @@ scoresRouter.get("/scores/:scoreId", async (req: Request, res: Response) => {
     return res.status(403).json({ message: "This score has not been shared by the customer", code: "NOT_SHARED" });
   }
 
+  if (scoreDoc.status === "WITHDRAWN") {
+    return res.status(410).json({ message: "The renter withdrew this score", code: "SCORE_WITHDRAWN" });
+  }
+
   if (scoreDoc.status === "CREATED") {
     return res.status(200).json({ status: "PROCESSING", retryAfter: 3 });
   }

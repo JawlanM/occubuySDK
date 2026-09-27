@@ -28,6 +28,22 @@ export interface PortalLeadPayload {
 // on any non-2xx or network failure so the caller can log it, but must never be allowed to
 // change what the customer's own /share response looks like. Portal upserts on scoreId, so
 // a caller-side retry after a failure here is safe to just call again.
+// Tells the portal a renter withdrew this score, so it drops the lead. A 404 that says the
+// portal has no such lead counts as done (nothing to drop); anything else is retried.
+export async function withdrawLeadFromPortal(scoreId: string): Promise<void> {
+  const res = await fetch(`${portalBaseUrl()}/api/internal/leads/${encodeURIComponent(scoreId)}`, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(5000),
+    headers: { "X-Internal-Secret": internalSecret() },
+  });
+  if (res.ok) return;
+  if (res.status === 404) {
+    const body = (await res.json().catch(() => ({}))) as { code?: string };
+    if (body.code === "LEAD_NOT_FOUND") return;
+  }
+  throw new Error(`Portal lead withdraw failed: HTTP ${res.status}`);
+}
+
 export async function pushLeadToPortal(payload: PortalLeadPayload): Promise<void> {
   const res = await fetch(`${portalBaseUrl()}/api/internal/leads`, {
     method: "POST",

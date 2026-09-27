@@ -129,14 +129,14 @@ describe("retryPendingLeadPushes (the catch-up sweep)", () => {
       score("declined", { declinedAt: "2026-09-26T02:00:00.000Z" }),
     ]);
 
-    expect(await retryPendingLeadPushes()).toEqual({ pushed: 2, failed: 0 });
+    expect(await retryPendingLeadPushes()).toEqual({ pushed: 2, failed: 0, withdrawn: 0 });
     expect(pushedScoreIds.sort()).toEqual(["pending-1", "pending-old"]);
     expect(byId("pending-1")?.leadPushedAt).toEqual(expect.any(String));
     expect(byId("pending-old")?.leadPushedAt).toEqual(expect.any(String));
 
     // nothing left on a second run
     pushedScoreIds = [];
-    expect(await retryPendingLeadPushes()).toEqual({ pushed: 0, failed: 0 });
+    expect(await retryPendingLeadPushes()).toEqual({ pushed: 0, failed: 0, withdrawn: 0 });
     expect(pushedScoreIds).toEqual([]);
   });
 
@@ -144,10 +144,10 @@ describe("retryPendingLeadPushes (the catch-up sweep)", () => {
     store.set("userscores", [score("a"), score("b")]);
     portalUp = false;
 
-    expect(await retryPendingLeadPushes()).toEqual({ pushed: 0, failed: 2 });
+    expect(await retryPendingLeadPushes()).toEqual({ pushed: 0, failed: 2, withdrawn: 0 });
 
     portalUp = true;
-    expect(await retryPendingLeadPushes()).toEqual({ pushed: 2, failed: 0 });
+    expect(await retryPendingLeadPushes()).toEqual({ pushed: 2, failed: 0, withdrawn: 0 });
   });
 
   it("is reachable at POST /api/internal/leads/retry, behind the internal secret", async () => {
@@ -158,6 +158,6 @@ describe("retryPendingLeadPushes (the catch-up sweep)", () => {
 
     const res = await request(app).post("/api/internal/leads/retry").set("X-Internal-Secret", SECRET);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ pushed: 1, failed: 0 });
+    expect(res.body).toEqual({ pushed: 1, failed: 0, withdrawn: 0 });
   });
 });

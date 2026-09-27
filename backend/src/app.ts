@@ -3,6 +3,7 @@ import { scoresRouter } from "./routes/scores.routes";
 import { fastlinkRouter } from "./routes/fastlink.routes";
 import { partnerRouter } from "./routes/partner.routes";
 import { internalRouter } from "./routes/internal.routes";
+import { withdrawRouter } from "./routes/withdraw.routes";
 import { rentersRouter } from "./routes/renters.routes";
 import { findOne } from "./config/dataApi";
 import { PARTNER_COLLECTION } from "./models/partner.model";
@@ -109,6 +110,8 @@ app.use(express.json());
 
 app.use("/api", scoresRouter);
 app.use("/api", rentersRouter);
+// before internalRouter: withdrawal has its own secret (the Occubuy app, not the portal)
+app.use("/api/internal/scores", withdrawRouter);
 app.use("/api/internal", internalRouter);
 app.use(fastlinkRouter);
 app.use(partnerRouter);

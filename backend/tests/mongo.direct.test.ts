@@ -141,6 +141,93 @@ describe.skipIf(!TEST_URI)("direct MongoDB (no db-proxy)", () => {
     });
   });
 
+  describe("withdrawal on real Mongo", () => {
+    const APP_SECRET = "direct-test-app-secret";
+    const portalCalls: Array<{ url: string; method: string }> = [];
+
+    const shareOne = async () => {
+      const created = await request(app)
+        .post("/api/scores")
+        .set("Authorization", `Bearer ${partnerKey}`)
+        .send({ userId: "r1", applicant: { fullName: "Test Renter", email: "r@x.test", phone: "0412 345 678", dob: "1995-05-05", address: "1 Test Street, Melbourne" } });
+      const { scoreId, sessionToken } = created.body as { scoreId: string; sessionToken: string };
+      const h = { Authorization: `Bearer ${partnerKey}`, "X-Occubuy-Session": sessionToken };
+      await request(app).post(`/api/scores/${scoreId}/complete`).set(h).send({ providerId: 1, providerName: "B", providerAccountId: 2, requestId: "q", status: "SUCCESS" });
+      expect((await request(app).post(`/api/scores/${scoreId}/share`).set(h)).status).toBe(200);
+      return { scoreId, h };
+    };
+    const withdraw = (scoreId: string) =>
+      request(app).post(`/api/internal/scores/${scoreId}/withdraw`).set("X-App-Secret", APP_SECRET);
+
+    beforeAll(() => {
+      process.env.OCCUBUY_APP_SECRET = APP_SECRET;
+      process.env.LEAD_PUSH_RETRY_DELAYS_MS = "0,0";
+      // the portal: accept lead pushes and withdrawals, record them
+      vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+        portalCalls.push({ url: String(url), method: init?.method ?? "GET" });
+        return new Response("{}", { status: 200 });
+      }));
+    });
+    afterAll(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("deletes the renter's data and the score, keeps ids only, tells the portal, and reads become 410", async () => {
+      const { scoreId, h } = await shareOne();
+      const res = await withdraw(scoreId);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("withdrawn");
+
+      const stored = await dataApi.findById<Record<string, unknown>>("userscores", scoreId);
+      expect(stored?.status).toBe("WITHDRAWN");
+      for (const gone of ["applicant", "score", "linkedAccount", "userId", "sessionTokenHash"]) {
+        expect(stored?.[gone]).toBeUndefined();
+      }
+      expect(stored?.partnerId).toBe("direct-test-partner");
+
+      await vi.waitFor(async () => {
+        expect(portalCalls.some((c) => c.method === "DELETE" && c.url.endsWith(`/api/internal/leads/${scoreId}`))).toBe(true);
+        const after = await dataApi.findById<{ leadWithdrawnAt?: string }>("userscores", scoreId);
+        expect(after?.leadWithdrawnAt).toEqual(expect.any(String));
+      });
+
+      // partner key alone, after sharing: gone
+      expect((await request(app).get(`/api/scores/${scoreId}`).set("Authorization", `Bearer ${partnerKey}`)).status).toBe(410);
+      // the renter's session no longer works either
+      expect((await request(app).post(`/api/scores/${scoreId}/share`).set(h)).status).toBe(401);
+      // twice is fine
+      expect((await withdraw(scoreId)).body.alreadyWithdrawn).toBe(true);
+    });
+
+    it("more than 12 months after sharing: 409, nothing changed", async () => {
+      const { scoreId } = await shareOne();
+      const thirteenMonthsAgo = new Date(Date.now() - 395 * 24 * 60 * 60 * 1000).toISOString();
+      await dataApi.updateById("userscores", scoreId, { sharedAt: thirteenMonthsAgo });
+
+      const res = await withdraw(scoreId);
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("WITHDRAWAL_WINDOW_CLOSED");
+      expect((await dataApi.findById<{ status: string }>("userscores", scoreId))?.status).toBe("COMPLETED");
+    });
+
+    it("the sweep re-sends a withdrawal the portal missed, and never re-pushes the withdrawn lead", async () => {
+      const { scoreId } = await shareOne();
+      await withdraw(scoreId);
+      await vi.waitFor(async () =>
+        expect((await dataApi.findById<{ leadWithdrawnAt?: string }>("userscores", scoreId))?.leadWithdrawnAt).toBeTruthy()
+      );
+      // pretend the portal never confirmed
+      await dataApi.updateOne("userscores", { _id: scoreId }, { $set: { leadWithdrawnAt: null, leadPushedAt: null } });
+      portalCalls.length = 0;
+
+      const swept = await request(app).post("/api/internal/leads/retry").set("X-Internal-Secret", SECRET);
+      expect(swept.status).toBe(200);
+      expect(swept.body.withdrawn).toBeGreaterThanOrEqual(1);
+      expect(portalCalls.some((c) => c.method === "DELETE" && c.url.endsWith(scoreId))).toBe(true);
+      expect(portalCalls.some((c) => c.method === "POST" && c.url.endsWith("/api/internal/leads"))).toBe(false);
+    });
+  });
+
   describe("OTP on real Mongo", () => {
     const send = () =>
       request(app).post("/api/renters/send-otp").set("Authorization", `Bearer ${partnerKey}`).send({ phone: PHONE });
