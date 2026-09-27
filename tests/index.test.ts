@@ -45,6 +45,8 @@ const VALID_APPLICANT: OccubuyApplicant = {
 afterEach(() => {
   document.body.innerHTML = "";
   document.head.innerHTML = "";
+  sessionStorage.clear(); // a saved flow would make the next test resume it
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -398,6 +400,7 @@ describe("OccubuyScore.init", () => {
     const improveTextByBand: string[] = [];
 
     for (const { scoreId, score } of cases) {
+      sessionStorage.clear(); // each case is a separate visit, not a resume of the last one
       const container = makeContainer();
       const fetchMock = vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
@@ -733,6 +736,176 @@ describe("score after the bank step", () => {
       });
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+// D: errors, retry, resume
+describe("try again, resume, cleanup", () => {
+  function consentAndStart(container: HTMLElement) {
+    const checkbox = container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+  }
+  function bankSuccess(container: HTMLElement) {
+    const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
+    for (const data of [
+      fastLinkSuccessMessage({ providerId: 1, providerAccountId: 2, requestId: "r", providerName: "Test Bank A", status: "SUCCESS" }),
+      { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
+    ]) {
+      window.dispatchEvent(new MessageEvent("message", { data, origin: "http://localhost:8787", source: iframe.contentWindow }));
+    }
+  }
+  const retryBtn = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-occubuy-error-retry]");
+  const flowKey = "occubuy-flow:" + "pk_sandbox_test".slice(-12);
+
+  it("Try again after a failed start goes back to consent, and the second start works", async () => {
+    const container = makeContainer();
+    let creates = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/scores")) {
+          creates += 1;
+          return creates === 1
+            ? Promise.reject(new Error("down"))
+            : Promise.resolve(jsonResponse({ scoreId: "s1", sessionToken: "t", fastlinkSession: FASTLINK_SESSION }));
+        }
+        return Promise.reject(new Error("not needed"));
+      })
+    );
+    const onError = vi.fn();
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onError }).start();
+
+    consentAndStart(container);
+    await vi.waitFor(() => expect(retryBtn(container)?.hidden).toBe(false));
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "START_FAILED" }));
+
+    retryBtn(container)!.click();
+    expect(container.querySelector('[data-occubuy-step="consent"]')).not.toBeNull();
+    consentAndStart(container);
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull());
+  });
+
+  it("no Try again for a setup problem a retry can't fix", async () => {
+    const container = makeContainer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/api/scores")
+          ? Promise.resolve(jsonResponse({ code: "ORIGIN_NOT_ALLOWED", message: "x" }, false, 403))
+          : Promise.reject(new Error("not needed"))
+      )
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    consentAndStart(container);
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="error"]')).not.toBeNull());
+    expect(retryBtn(container)?.hidden).toBe(true);
+  });
+
+  it("Try again after a failed share goes back to the score, and onComplete fires once", async () => {
+    const container = makeContainer();
+    let shares = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/scores")) {
+          return Promise.resolve(jsonResponse({ scoreId: "s1", sessionToken: "t", fastlinkSession: FASTLINK_SESSION }));
+        }
+        if (url.endsWith("/complete")) return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 610 } }));
+        if (url.endsWith("/share")) {
+          shares += 1;
+          return shares === 1
+            ? Promise.reject(new Error("blip"))
+            : Promise.resolve(jsonResponse({ score: 610, verifiedAt: "2026-09-27T00:00:00.000Z", reference: "s1" }));
+        }
+        return Promise.reject(new Error("not needed"));
+      })
+    );
+    const onComplete = vi.fn();
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onComplete }).start();
+    consentAndStart(container);
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull());
+    bankSuccess(container);
+    await vi.waitFor(() => expect(container.querySelector("[data-occubuy-share]")).not.toBeNull());
+
+    container.querySelector<HTMLButtonElement>("[data-occubuy-share]")!.click();
+    await vi.waitFor(() => expect(retryBtn(container)?.hidden).toBe(false));
+    retryBtn(container)!.click();
+    expect(container.querySelector("[data-occubuy-score-value]")?.textContent).toBe("610");
+
+    container.querySelector<HTMLButtonElement>("[data-occubuy-share]")!.click();
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: "success", score: 610 }));
+    expect(sessionStorage.getItem(flowKey)).toBeNull();
+  });
+
+  it("after a refresh, picks the flow up at the score screen instead of starting over", async () => {
+    const container = makeContainer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/scores")) {
+          return Promise.resolve(jsonResponse({ scoreId: "s9", sessionToken: "t9", fastlinkSession: FASTLINK_SESSION }));
+        }
+        if (url.endsWith("/complete")) return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 777 } }));
+        if (url.endsWith("/api/scores/s9")) return Promise.resolve(jsonResponse({ status: "COMPLETED", score: { value: 777 } }));
+        return Promise.reject(new Error("not needed"));
+      })
+    );
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    consentAndStart(container);
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull());
+    bankSuccess(container);
+    await vi.waitFor(() => expect(container.querySelector("[data-occubuy-score-value]")).not.toBeNull());
+
+    // a refresh: new page load, same tab
+    container.remove();
+    const again = makeContainer();
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    await vi.waitFor(() => expect(again.querySelector("[data-occubuy-score-value]")?.textContent).toBe("777"));
+    expect(again.querySelector('[data-occubuy-step="consent"]')).toBeNull();
+  });
+
+  it("a saved flow the backend no longer knows starts over at consent", async () => {
+    sessionStorage.setItem(flowKey, JSON.stringify({ scoreId: "gone", sessionToken: "t", at: Date.now() }));
+    const container = makeContainer();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ code: "SESSION_INVALID" }, false, 401))));
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="consent"]')).not.toBeNull());
+    expect(sessionStorage.getItem(flowKey)).toBeNull();
+  });
+
+  it("closes Yodlee's FastLink when the renter cancels", async () => {
+    const container = makeContainer();
+    const fastlink = { open: vi.fn(), close: vi.fn() };
+    (window as unknown as { fastlink?: unknown }).fastlink = fastlink;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/api/scores")
+          ? Promise.resolve(
+              jsonResponse({ scoreId: "s1", sessionToken: "t", fastlinkSession: { ...FASTLINK_SESSION, transport: "yodleeJs" } })
+            )
+          : Promise.reject(new Error("not needed"))
+      )
+    );
+    const onCancel = vi.fn();
+    try {
+      init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onCancel }).start();
+      consentAndStart(container);
+      await vi.waitFor(() => expect(fastlink.open).toHaveBeenCalled());
+
+      container.querySelector<HTMLButtonElement>("[data-occubuy-bank-cancel]")!.click();
+      expect(fastlink.close).toHaveBeenCalledTimes(1);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (window as unknown as { fastlink?: unknown }).fastlink;
     }
   });
 });

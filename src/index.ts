@@ -418,6 +418,7 @@ function errorTemplate(): string {
     <div class="occubuy-container" data-occubuy-step="error">
       ${brandHeader()}
       <div class="occubuy-error" role="alert" data-occubuy-error-message></div>
+      <button type="button" class="occubuy-btn" data-occubuy-error-retry hidden>Try again</button>
       <button type="button" class="occubuy-btn occubuy-btn-secondary" data-occubuy-error-dismiss>Close</button>
     </div>
   `;
@@ -516,23 +517,81 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       return { ...headers, ...extra };
     }
 
+    let fastlinkOpen = false;
+    // onComplete / onCancel / onDecline end the flow: only the first one ever fires
+    let finished = false;
+
+    // Resume after a refresh (or the page reloading when a bank sends the renter back): once a
+    // score exists, its id and session token are kept in sessionStorage for this tab only, and
+    // cleared when the flow ends. Storage can be blocked, so every access is guarded.
+    const flowKey = `occubuy-flow:${resolved.apiKey.slice(-12)}`;
+    function saveFlow(scoreId: string): void {
+      try {
+        sessionStorage.setItem(flowKey, JSON.stringify({ scoreId, sessionToken, at: Date.now() }));
+      } catch {
+        /* no resume, the flow still works */
+      }
+    }
+    function clearFlow(): void {
+      try {
+        sessionStorage.removeItem(flowKey);
+      } catch {
+        /* nothing stored */
+      }
+    }
+    function savedFlow(): { scoreId: string; sessionToken: string } | null {
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(flowKey) ?? "null");
+        // the session token lives an hour; don't try one that's about to expire
+        if (saved?.scoreId && saved.sessionToken && Date.now() - saved.at < 50 * 60 * 1000) return saved;
+      } catch {
+        /* fall through */
+      }
+      return null;
+    }
+
     function cleanup(): void {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
       if (messageListener) window.removeEventListener("message", messageListener);
+      if (fastlinkOpen) {
+        fastlinkOpen = false;
+        try {
+          window.fastlink?.close();
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+
+    function end(callback: () => void): void {
+      cleanup();
+      clearFlow();
+      if (finished) return;
+      finished = true;
+      callback();
     }
 
     function cancel(): void {
-      cleanup();
-      resolved.onCancel({ status: "cancelled" });
+      end(() => resolved.onCancel({ status: "cancelled" }));
     }
 
-    function fail(code: OccubuyErrorCode, message: string): void {
+    // retry: where "Try again" goes back to. Left out for problems a retry can't fix.
+    function fail(code: OccubuyErrorCode, message: string, retry?: () => void): void {
       cleanup();
       containerEl.innerHTML = errorTemplate();
       const messageEl = containerEl.querySelector("[data-occubuy-error-message]");
+      const retryBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-error-retry]");
       const dismissBtn = containerEl.querySelector<HTMLButtonElement>("[data-occubuy-error-dismiss]");
       if (messageEl) messageEl.textContent = message;
+      if (retry && retryBtn) {
+        retryBtn.hidden = false;
+        retryBtn.addEventListener("click", () => {
+          cancelled = false;
+          pollAttempts = 0;
+          retry();
+        });
+      }
       dismissBtn?.addEventListener("click", cancel);
       resolved.onError({ code, message });
     }
@@ -590,7 +649,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             if (err === "ORIGIN_NOT_ALLOWED" || err === "PARTNER_KEY_INVALID") {
               fail(err, "Verification isn't available on this website right now.");
             } else {
-              fail("START_FAILED", "We couldn't start your verification. Please try again.");
+              fail("START_FAILED", "We couldn't start your verification. Please try again.", renderConsent);
             }
           });
       });
@@ -660,6 +719,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       loadYodleeInitializeJs()
         .then((fastlink) => {
           if (cancelled) return;
+          fastlinkOpen = true;
           fastlink.open(
             {
               fastLinkURL: session.fastlinkUrl,
@@ -678,7 +738,11 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           );
         })
         .catch(() => {
-          if (!cancelled) fail("BANK_CONNECTION_FAILED", "We couldn't load the bank connection tool. Please try again.");
+          if (!cancelled) {
+            fail("BANK_CONNECTION_FAILED", "We couldn't load the bank connection tool. Please try again.", () =>
+              renderBankConnection(scoreId, session)
+            );
+          }
         });
     }
 
@@ -737,7 +801,14 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         }),
       })
         .then(async (res) => {
+          // 409: this score was already completed (a retry after a lost reply), so just read it
+          if (res.status === 409) {
+            saveFlow(scoreId);
+            if (!cancelled) renderScorePolling(scoreId);
+            return;
+          }
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          saveFlow(scoreId);
           // the backend scores during /complete and sends it back; poll only if it didn't
           const data = (await res.json().catch(() => ({}))) as { status?: string; score?: { value?: number } };
           if (cancelled) return;
@@ -749,7 +820,12 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           }
         })
         .catch(() => {
-          if (!cancelled) fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.");
+          if (!cancelled) {
+            fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.", () => {
+              containerEl.innerHTML = pollingTemplate();
+              completeBankConnection(scoreId, providerData);
+            });
+          }
         });
     }
 
@@ -762,7 +838,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
       if (cancelled) return;
       pollAttempts += 1;
       if (pollAttempts > MAX_POLL_ATTEMPTS) {
-        fail("POLL_TIMEOUT", "Verification is taking longer than expected. Please try again.");
+        fail("POLL_TIMEOUT", "Verification is taking longer than expected. Please try again.", () => renderScorePolling(scoreId));
         return;
       }
 
@@ -787,7 +863,9 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         .catch(() => {
           if (cancelled) return;
           if (errorsInRow + 1 >= MAX_POLL_ERRORS) {
-            fail("POLL_FAILED", "We couldn't check your verification status. Please try again.");
+            fail("POLL_FAILED", "We couldn't check your verification status. Please try again.", () =>
+              renderScorePolling(scoreId)
+            );
             return;
           }
           pollTimer = setTimeout(() => poll(scoreId, errorsInRow + 1), POLL_INTERVAL_MS * 2 ** (errorsInRow + 1));
@@ -830,21 +908,21 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             return res.json() as Promise<{ score?: number; verifiedAt?: string; reference?: string }>;
           })
           .then((shared) => {
-            cleanup();
             const sharedScore = typeof shared.score === "number" ? Math.round(shared.score) : roundedScore;
-            resolved.onComplete({
-              status: "success",
-              score: sharedScore,
-              band: scoreToBand(sharedScore),
-              verifiedAt: shared.verifiedAt ?? verifiedAt,
-              reference: shared.reference ?? scoreId,
-            });
+            end(() =>
+              resolved.onComplete({
+                status: "success",
+                score: sharedScore,
+                band: scoreToBand(sharedScore),
+                verifiedAt: shared.verifiedAt ?? verifiedAt,
+                reference: shared.reference ?? scoreId,
+              })
+            );
           })
           .catch(() => {
-            settled = false;
-            shareBtn.disabled = false;
-            if (declineBtn) declineBtn.disabled = false;
-            fail("SHARE_FAILED", "We couldn't share your score with the partner. Please try again.");
+            fail("SHARE_FAILED", "We couldn't share your score with the partner. Please try again.", () =>
+              renderSuccess(scoreId, roundedScore)
+            );
           });
       });
 
@@ -864,14 +942,34 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
           .catch(() => {
             /* best-effort - decline still proceeds locally, see comment above */
           })
-          .then(() => {
-            cleanup();
-            resolved.onDecline({ status: "declined" });
-          });
+          .then(() => end(() => resolved.onDecline({ status: "declined" })));
       });
     }
 
-    renderConsent();
+    // Picks up a flow this tab already got a score for (a refresh, or the page reloading after a
+    // bank sent the renter back). Anything unexpected just starts over from consent.
+    function resume(saved: { scoreId: string; sessionToken: string }): void {
+      sessionToken = saved.sessionToken;
+      containerEl.innerHTML = pollingTemplate();
+      fetch(`${apiBase}/api/scores/${encodeURIComponent(saved.scoreId)}`, { headers: authHeaders() })
+        .then((res) => (res.ok ? (res.json() as Promise<{ status?: string; score?: { value?: number } }>) : null))
+        .then((data) => {
+          if (cancelled) return;
+          const value = data?.score?.value;
+          if (data?.status === "COMPLETED" && typeof value === "number") renderSuccess(saved.scoreId, value);
+          else if (data?.status === "PROCESSING") renderScorePolling(saved.scoreId);
+          else throw new Error("can't resume");
+        })
+        .catch(() => {
+          clearFlow();
+          sessionToken = undefined;
+          if (!cancelled) renderConsent();
+        });
+    }
+
+    const saved = savedFlow();
+    if (saved) resume(saved);
+    else renderConsent();
   }
 
   return { start };
