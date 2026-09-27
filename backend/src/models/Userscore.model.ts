@@ -23,8 +23,8 @@ export interface IApplicant {
   address: string;
 }
 
-// plain interface, not a mongoose Document - queries go through the Data API
-// (see config/dataApi.ts), not a live driver connection
+// plain interface, not a mongoose Document - queries go through the small helper layer in
+// config/dataApi.ts
 export interface IUserScore {
   _id: string;
   userId: string;

@@ -99,8 +99,8 @@ const SWEEP_MAX = 500;
 
 // Walks every shared score the portal hasn't confirmed and pushes it again, one attempt each
 // (this is the catch-up after the portal was down, not the place to wait around).
-// Uses findOne + a per-run marker instead of a "find many" so it works with the db-proxy's
-// existing actions: each score gets stamped with this run's id before it's pushed, so the next
+// Uses findOne + a per-run marker instead of a "find many" so it only needs dataApi's small
+// set of calls: each score gets stamped with this run's id before it's pushed, so the next
 // findOne moves on to the next one whether the push worked or not. Declined scores are skipped.
 export async function retryPendingLeadPushes(): Promise<{ pushed: number; failed: number; withdrawn: number }> {
   const sweepId = randomUUID();

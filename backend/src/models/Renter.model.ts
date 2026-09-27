@@ -4,9 +4,9 @@
  * no way to recognise the same person across two different partner sites.
  *
  * A `renter` is real: a phone number, confirmed via OTP, that persists
- * across every partner they interact with. Same Data API pattern as
- * partner.model.ts (plain interface, no Mongoose Schema — queries go
- * through config/dataApi.ts / db-proxy).
+ * across every partner they interact with. Same pattern as
+ * partner.model.ts: plain interface, no Mongoose Schema, queries go
+ * through config/dataApi.ts.
  */
 export interface IRenter {
   _id: string;

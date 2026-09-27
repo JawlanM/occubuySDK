@@ -22,7 +22,7 @@ export const OTP_VERIFICATION_COLLECTION = "otpVerifications";
 
 /**
  * One doc per phone: how many codes were sent in the current window. Lets send-otp be rate
- * limited with the db-proxy's existing findOne/insertOne/updateById, no counting query needed.
+ * limited with dataApi's findOne/insertOne/updateOne, no counting query needed.
  */
 export interface IOtpSendWindow {
   _id: string;
