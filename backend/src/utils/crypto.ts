@@ -2,8 +2,18 @@ import { randomBytes, createHash, timingSafeEqual } from "crypto";
 
 // Never store the raw key/token, only the hash. The pepper is server-only, so a Mongo
 // dump alone can't be brute-forced.
+// Render sets RENDER=true on every service; either that or NODE_ENV=production counts.
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+}
+
+// The dev fallback is public (it's in this repo), so production never uses it: the server
+// refuses to start without a real pepper (server.ts), and this throws as a second guard.
 function pepper(): string {
-  return process.env.OCCUBUY_HASH_PEPPER ?? "dev-only-pepper-change-me";
+  const configured = process.env.OCCUBUY_HASH_PEPPER;
+  if (configured) return configured;
+  if (isProduction()) throw new Error("OCCUBUY_HASH_PEPPER must be set in production");
+  return "dev-only-pepper-change-me";
 }
 
 export function hashSecret(secret: string): string {

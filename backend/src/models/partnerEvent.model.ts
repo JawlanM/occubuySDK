@@ -7,6 +7,7 @@ export type PartnerEventType =
   | "score.declined"
   | "score.portal_sync_failed"
   | "score.closed"
+  | "score.bank_link_rejected"
   | "auth.partner_key_invalid"
   | "auth.session_invalid"
   | "auth.origin_rejected"

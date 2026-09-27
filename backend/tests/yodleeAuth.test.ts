@@ -140,6 +140,59 @@ describe("createYodleeFastLinkSession", () => {
     }
   });
 
+  describe("confirmProviderAccount (checking the bank link at /complete)", () => {
+    // token call first, then GET /providerAccounts/{id}
+    function yodlee(accountReply: () => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>) {
+      const fetchMock = vi.fn(async (url: string) =>
+        String(url).endsWith("/auth/token")
+          ? { ok: true, status: 201, json: async () => ({ token: { accessToken: "tok", expiresIn: 1800 } }) }
+          : accountReply()
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+    const account = (fields: Record<string, unknown>) => async () => ({ ok: true, status: 200, json: async () => ({ providerAccount: [{ id: 5, ...fields }] }) });
+
+    it("ok for a real link, and asks with the user's token", async () => {
+      setEnv(CONFIG);
+      const fetchMock = yodlee(account({ status: "SUCCESS", providerId: 16441 }));
+      const { confirmProviderAccount } = await loadModule();
+      expect(await confirmProviderAccount(5, 16441)).toBe("ok");
+      const [url, options] = fetchMock.mock.calls[1] as unknown as [string, { headers: Record<string, string> }];
+      expect(url).toBe("https://sandbox.preprod.yodlee.com/ysl/providerAccounts/5");
+      expect(options.headers.Authorization).toBe("Bearer tok");
+    });
+
+    it("still refreshing counts as ok", async () => {
+      setEnv(CONFIG);
+      yodlee(account({ status: "IN_PROGRESS" }));
+      const { confirmProviderAccount } = await loadModule();
+      expect(await confirmProviderAccount(5)).toBe("ok");
+    });
+
+    it("an id this user doesn't have (Y807), a failed link, or another bank are refused", async () => {
+      setEnv(CONFIG);
+      yodlee(async () => ({ ok: false, status: 400, json: async () => ({ errorCode: "Y807", errorMessage: "Resource not found" }) }));
+      let mod = await loadModule();
+      expect(await mod.confirmProviderAccount(123)).toBe("not_found");
+
+      yodlee(account({ status: "FAILED" }));
+      mod = await loadModule();
+      expect(await mod.confirmProviderAccount(5)).toBe("failed");
+
+      yodlee(account({ status: "SUCCESS", providerId: 1 }));
+      mod = await loadModule();
+      expect(await mod.confirmProviderAccount(5, 16441)).toBe("provider_mismatch");
+    });
+
+    it("throws when Yodlee is down, so the renter gets 'try again' rather than a rejection", async () => {
+      setEnv(CONFIG);
+      yodlee(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+      const { confirmProviderAccount } = await loadModule();
+      await expect(confirmProviderAccount(5)).rejects.toThrow(/503/);
+    });
+  });
+
   it("throws with the status and body on a non-ok response", async () => {
     setEnv(CONFIG);
     const fetchMock = vi.fn().mockResolvedValue({

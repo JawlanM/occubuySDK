@@ -901,6 +901,8 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             if (!cancelled) renderScorePolling(scoreId);
             return;
           }
+          // 400: the backend couldn't confirm this bank link, so resending won't help
+          if (res.status === 400) throw "relink";
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           saveFlow(scoreId);
           // the backend scores during /complete and sends it back; poll only if it didn't
@@ -913,8 +915,11 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
             renderScorePolling(scoreId);
           }
         })
-        .catch(() => {
-          if (!cancelled) {
+        .catch((err) => {
+          if (cancelled) return;
+          if (err === "relink") {
+            fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please connect your bank again.", renderConsent);
+          } else {
             fail("BANK_CONNECTION_FAILED", "We couldn't confirm your bank connection. Please try again.", () => {
               show(pollingTemplate());
               completeBankConnection(scoreId, providerData);

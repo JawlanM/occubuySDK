@@ -1021,3 +1021,38 @@ describe("accessibility", () => {
     expect(container.querySelector(".occubuy-spinner")?.getAttribute("aria-hidden")).toBe("true");
   });
 });
+
+describe("bank link refused at /complete", () => {
+  it("Try again goes back to the start so the renter can link the bank again", async () => {
+    const container = makeContainer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/scores")) {
+          return Promise.resolve(jsonResponse({ scoreId: "s1", sessionToken: "t", fastlinkSession: FASTLINK_SESSION }));
+        }
+        if (url.endsWith("/complete")) return Promise.resolve(jsonResponse({ code: "BANK_LINK_NOT_CONFIRMED" }, false, 400));
+        return Promise.reject(new Error("not needed"));
+      })
+    );
+    const onError = vi.fn();
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT, onError }).start();
+    const checkbox = container.querySelector<HTMLInputElement>("[data-occubuy-consent-checkbox]")!;
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("[data-occubuy-consent-submit]")!.click();
+    await vi.waitFor(() => expect(container.querySelector('[data-occubuy-step="bankConnection"]')).not.toBeNull());
+    const iframe = container.querySelector<HTMLIFrameElement>("[data-occubuy-fastlink-iframe]")!;
+    for (const data of [
+      fastLinkSuccessMessage({ providerId: 1, providerAccountId: 2, requestId: "r", providerName: "B", status: "SUCCESS" }),
+      { type: "POST_MESSAGE", data: { action: "exit", sites: [] } },
+    ]) {
+      window.dispatchEvent(new MessageEvent("message", { data, origin: "http://localhost:8787", source: iframe.contentWindow }));
+    }
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: "BANK_CONNECTION_FAILED" })));
+    expect(container.textContent).toContain("connect your bank again");
+    container.querySelector<HTMLButtonElement>("[data-occubuy-error-retry]")!.click();
+    expect(container.querySelector('[data-occubuy-step="consent"]')).not.toBeNull();
+  });
+});

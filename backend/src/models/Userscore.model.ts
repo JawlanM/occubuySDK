@@ -34,6 +34,9 @@ export interface IUserScore {
   applicant?: IApplicant;
   status: "CREATED" | "PROCESSING" | "COMPLETED" | "FAILED" | "WITHDRAWN";
   linkedAccount?: ILinkedAccount;
+  // which bank provider this score's FastLink session came from; only "yodlee" links are
+  // confirmed with Yodlee at /complete (the mock has nothing to confirm)
+  bankProvider?: "yodlee" | "mock";
   score?: IScoreData;
   // hash of the token POST /scores hands back once - every later call for this scoreId
   // has to bring it, that's what actually locks the score to this one flow

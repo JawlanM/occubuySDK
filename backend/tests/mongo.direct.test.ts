@@ -21,6 +21,16 @@ describe.skipIf(!TEST_URI)("direct MongoDB (no db-proxy)", () => {
     process.env.MONGODB_URI = TEST_URI;
     process.env.MONGODB_DATABASE = `direct_test_${Date.now()}`;
     process.env.OCCUBUY_INTERNAL_SECRET = SECRET;
+    // Yodlee configured (read when the modules load) but not the provider: scores use the mock
+    // unless a test marks one as a real Yodlee link
+    Object.assign(process.env, {
+      YODLEE_API_BASE_URL: "https://yodlee.test/ysl",
+      YODLEE_CLIENT_ID: "c",
+      YODLEE_SECRET: "s",
+      YODLEE_LOGIN_NAME: "u",
+      YODLEE_FASTLINK_URL: "https://fastlink.test/",
+    });
+    process.env.BANK_PROVIDER = ""; // set, so dotenv doesn't fill it back in from a local .env
     dataApi = await import("../src/config/dataApi");
     ({ app } = await import("../src/app"));
 
@@ -138,6 +148,52 @@ describe.skipIf(!TEST_URI)("direct MongoDB (no db-proxy)", () => {
       const values = new Set(polls.map((p) => p.body.score?.value));
       expect(polls.every((p) => p.body.status === "COMPLETED")).toBe(true);
       expect(values.size).toBe(1);
+    });
+  });
+
+  describe("/complete confirms a real Yodlee link", () => {
+    let yodleeReply: () => Response;
+    beforeAll(() => {
+      vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+        String(url).endsWith("/auth/token")
+          ? new Response(JSON.stringify({ token: { accessToken: "tok", expiresIn: 1800 } }), { status: 201 })
+          : yodleeReply()
+      ));
+    });
+    afterAll(() => vi.unstubAllGlobals());
+
+    const realLinkScore = async () => {
+      const created = await request(app)
+        .post("/api/scores")
+        .set("Authorization", `Bearer ${partnerKey}`)
+        .send({ userId: "r1", applicant: { fullName: "Test Renter", email: "r@x.test", phone: "0412 345 678", dob: "1995-05-05", address: "1 Test Street, Melbourne" } });
+      const { scoreId, sessionToken } = created.body as { scoreId: string; sessionToken: string };
+      expect((await dataApi.findById<{ bankProvider: string }>("userscores", scoreId))?.bankProvider).toBe("mock");
+      await dataApi.updateById("userscores", scoreId, { bankProvider: "yodlee" });
+      return (providerAccountId: number) =>
+        request(app)
+          .post(`/api/scores/${scoreId}/complete`)
+          .set({ Authorization: `Bearer ${partnerKey}`, "X-Occubuy-Session": sessionToken })
+          .send({ providerId: 16441, providerName: "Dag Site", providerAccountId, requestId: "q", status: "SUCCESS" });
+    };
+
+    it("a link Yodlee doesn't know is refused and nothing is scored", async () => {
+      const complete = await realLinkScore();
+      yodleeReply = () => new Response(JSON.stringify({ errorCode: "Y807" }), { status: 400 });
+      const res = await complete(999);
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BANK_LINK_NOT_CONFIRMED");
+    });
+
+    it("Yodlee down: 502 so the widget can retry, and the retry works once Yodlee answers", async () => {
+      const complete = await realLinkScore();
+      yodleeReply = () => new Response("{}", { status: 503 });
+      expect((await complete(5)).body.code).toBe("BANK_CHECK_UNAVAILABLE");
+
+      yodleeReply = () => new Response(JSON.stringify({ providerAccount: [{ id: 5, status: "SUCCESS", providerId: 16441 }] }), { status: 200 });
+      const ok = await complete(5);
+      expect(ok.status).toBe(200);
+      expect(ok.body.status).toBe("COMPLETED");
     });
   });
 

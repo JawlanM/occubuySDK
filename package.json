@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src tests backend/src backend/tests",
     "format": "prettier --write \"src/**/*.ts\"",
     "size": "size-limit",
     "typecheck": "tsc --noEmit"

@@ -103,16 +103,51 @@ export function clearYodleeTokenCache(): void {
   cachedToken = null;
 }
 
-export async function createYodleeFastLinkSession(): Promise<YodleeFastLinkSession> {
+async function userToken(): Promise<{ accessToken: string; expiresAtMs: number }> {
   if (!cachedToken || cachedToken.expiresAtMs - Date.now() < MIN_TOKEN_LIFE_MS) {
     const { accessToken, expiresIn } = await mintAccessToken();
     cachedToken = { accessToken, expiresAtMs: Date.now() + expiresIn * 1000 };
   }
+  return cachedToken;
+}
+
+export async function createYodleeFastLinkSession(): Promise<YodleeFastLinkSession> {
+  const token = await userToken();
   return {
     fastlinkUrl: FASTLINK_URL as string,
-    accessToken: cachedToken.accessToken,
+    accessToken: token.accessToken,
     configName: CONFIG_NAME,
-    expiresAt: new Date(cachedToken.expiresAtMs).toISOString(),
+    expiresAt: new Date(token.expiresAtMs).toISOString(),
     transport: "yodleeJs",
   };
+}
+
+// /complete asks Yodlee whether the bank link the browser reported really exists for our user,
+// instead of trusting the widget's word for it. GET /providerAccounts/{id} answers
+// { providerAccount: [{ id, status, providerId, ... }] }, and HTTP 400 with errorCode Y807 for an
+// id this user doesn't have (checked against the sandbox, 27 Sep).
+// "failed" = the link exists but Yodlee says it failed. Throws when Yodlee can't be reached, so
+// the caller can say "try again" instead of rejecting a renter whose bank link is fine.
+export type ProviderAccountCheck = "ok" | "not_found" | "failed" | "provider_mismatch";
+
+export async function confirmProviderAccount(providerAccountId: number | string, providerId?: number | string): Promise<ProviderAccountCheck> {
+  ensureConfigured();
+  const { accessToken } = await userToken();
+  const res = await fetch(`${API_BASE_URL}/providerAccounts/${encodeURIComponent(String(providerAccountId))}`, {
+    headers: { "Api-Version": "1.1", Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (res.status === 400 || res.status === 404) {
+    const body = (await res.json().catch(() => ({}))) as { errorCode?: string };
+    if (res.status === 404 || body.errorCode === "Y807") return "not_found";
+  }
+  if (!res.ok) throw new Error(`Yodlee providerAccounts check failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { providerAccount?: Array<{ status?: string; providerId?: number }> };
+  const account = body.providerAccount?.[0];
+  if (!account) return "not_found";
+  if (account.status === "FAILED") return "failed";
+  if (providerId !== undefined && account.providerId !== undefined && String(account.providerId) !== String(providerId)) {
+    return "provider_mismatch";
+  }
+  return "ok";
 }

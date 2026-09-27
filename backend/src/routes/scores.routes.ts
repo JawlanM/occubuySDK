@@ -12,7 +12,7 @@ import { validateApplicant } from "../utils/validators";
 import { generateSessionToken } from "../utils/crypto";
 import { findById, insertOne, updateById, updateOne, OBJECT_ID_RE } from "../config/dataApi";
 import { logEvent } from "../utils/auditLog";
-import { createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
+import { confirmProviderAccount, createYodleeFastLinkSession, isYodleeConfigured, YodleeFastLinkSession } from "../config/yodleeAuth";
 import { pushLeadWithRetry } from "../services/leadPush";
 import { scoreBand, type ScoreBand } from "../utils/band";
 
@@ -101,7 +101,9 @@ scoresRouter.post("/scores", requirePartnerAuth, requireAllowedOrigin, async (re
   const now = new Date().toISOString();
   const sessionTokenExpiresAt = new Date(Date.now() + SESSION_TOKEN_TTL_MS).toISOString();
 
+  const fastlinkSession = await buildFastLinkSession(req);
   const scoreId = await insertOne(USERSCORE_COLLECTION, {
+    bankProvider: fastlinkSession.transport === "yodleeJs" ? "yodlee" : "mock",
     userId,
     partnerId: req.partner!._id,
     applicant: validated.applicant,
@@ -120,7 +122,7 @@ scoresRouter.post("/scores", requirePartnerAuth, requireAllowedOrigin, async (re
   return res.status(201).json({
     scoreId,
     sessionToken,
-    fastlinkSession: await buildFastLinkSession(req),
+    fastlinkSession,
   });
 });
 
@@ -151,6 +153,25 @@ scoresRouter.post("/scores/:scoreId/complete", requireSessionAuth, async (req: R
       message: `Score is in status ${scoreDoc.status}, expected CREATED`,
       code: "INVALID_SCORE_STATE",
     });
+  }
+
+  // A real Yodlee link is confirmed with Yodlee before anything is scored: the browser's
+  // report alone could be made up.
+  if (scoreDoc.bankProvider === "yodlee") {
+    let check;
+    try {
+      check = await confirmProviderAccount(providerAccountId, providerId);
+    } catch (error) {
+      console.error("Yodlee bank link check failed:", error);
+      return res.status(502).json({
+        message: "We couldn't confirm the bank connection right now. Please try again.",
+        code: "BANK_CHECK_UNAVAILABLE",
+      });
+    }
+    if (check !== "ok") {
+      logEvent("score.bank_link_rejected", { partnerId: scoreDoc.partnerId, scoreId, detail: { reason: check } });
+      return res.status(400).json({ message: "The bank connection couldn't be confirmed", code: "BANK_LINK_NOT_CONFIRMED" });
+    }
   }
 
   logEvent("score.bank_connected", { partnerId: scoreDoc.partnerId, scoreId, detail: { providerName } });
