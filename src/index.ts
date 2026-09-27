@@ -49,11 +49,12 @@ export interface OccubuyApplicant {
 
 /** Per-partner colours, applied only to this init() instance - no partner portal to source these from yet, so pass them directly. */
 export interface OccubuyBranding {
-  /** Accent colour for buttons, the brand dot, checkboxes etc. Defaults to Occubuy's own orange. */
+  /** Accent colour for buttons, the brand dot, checkboxes etc. Defaults to Occubuy coral. Button text
+   * switches between dark and white to stay readable on it. */
   primaryColor?: string;
-  /** Gradient/hover shade for primaryColor. Defaults to a matching darker orange if omitted. */
+  /** Hover/pressed shade for primaryColor. Defaults to a darker coral if omitted. */
   primaryColorDark?: string;
-  /** Colour for headings and body accent text. Defaults to Occubuy's own purple. */
+  /** Colour for headings and the score number. Defaults to Occubuy's near-black ink. */
   headingColor?: string;
 }
 
@@ -107,6 +108,21 @@ const BRANDING_CSS_VARS: Array<[keyof OccubuyBranding, string]> = [
 ];
 // portal colours are checked again here since they end up as CSS on the partner's page
 const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+// Sets one branding colour on the container. For the accent it also picks the button text
+// colour: the design's dark ink on light accents (like the default coral), white on dark ones.
+function applyBrandColour(el: HTMLElement, cssVar: string, colour: string): void {
+  el.style.setProperty(cssVar, colour);
+  if (cssVar !== "--occubuy-accent" || !HEX_COLOUR.test(colour)) return;
+  const hex = colour.length === 4 ? colour.replace(/[0-9a-f]/gi, "$&$&") : colour;
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  // contrast vs white (L=1) against contrast vs the ink #1F1719 (L~0.0095)
+  el.style.setProperty("--occubuy-on-accent", 1.05 / (luminance + 0.05) > (luminance + 0.05) / 0.0595 ? "#fff" : "#1F1719");
+}
 
 const MAX_POLL_ATTEMPTS = 40; // about 60 seconds at 1.5s each, just so it can't poll forever if something's stuck
 
@@ -203,74 +219,68 @@ const FONT_LINK_ID = "occubuy-font-link";
 
 const WIDGET_CSS = `
 .occubuy-container {
-  font-family: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: #faf8f3;
-  border-radius: 16px;
-  padding: 28px;
-  max-width: 420px;
-  box-shadow: 0 1px 2px rgba(35,32,27,0.06), 0 12px 28px rgba(35,32,27,0.08);
-  box-sizing: border-box;
+  --ob-acc: var(--occubuy-accent, #F87954); --ob-acc2: var(--occubuy-accent-dark, #E86A46);
+  --ob-on: var(--occubuy-on-accent, #1F1719); --ob-head: var(--occubuy-heading, #1F1719);
+  --ob-ink: #1F1719; --ob-body: #6C5359; --ob-muted: #8F7880; --ob-faint: #A08D93;
+  --ob-line: #EBDBDA; --ob-line2: #D6C2C5; --ob-sunk: #F7EBE7;
+  --ob-ease: cubic-bezier(.2,0,0,1); --ob-disp: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font: 400 14px/1.6 "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ob-body); background: #FEF6F0; border: 1px solid var(--ob-line); border-radius: 16px;
+  padding: 20px; max-width: 420px; box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(31,23,25,.06), 0 12px 28px -18px rgba(31,23,25,.4);
 }
 .occubuy-container * { box-sizing: border-box; }
-.occubuy-brand { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--occubuy-heading, #4a2c85); margin-bottom: 16px; }
-.occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--occubuy-accent, #f4855c); flex-shrink: 0; }
-.occubuy-heading { font-weight: 700; font-size: 20px; color: var(--occubuy-heading, #35205e); margin: 0 0 8px; line-height: 1.3; }
-.occubuy-sub { font-weight: 400; font-size: 13.5px; color: #8a8272; margin: 0 0 20px; line-height: 1.55; }
-@keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.occubuy-fade-in { animation: occubuy-fade-in 0.25s ease; }
-.occubuy-consent {
-  display: flex; gap: 10px; align-items: flex-start;
-  background: #fff; border: 1px solid #e7e0d0; border-radius: 10px;
-  padding: 14px 16px; margin-bottom: 20px;
-}
-.occubuy-consent input { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--occubuy-accent, #f4855c); }
-.occubuy-consent label { font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.55; cursor: pointer; }
+.occubuy-brand { display: flex; align-items: center; gap: 8px; font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 16px; }
+.occubuy-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ob-acc); flex-shrink: 0; }
+.occubuy-heading { font: 600 20px/1.3 var(--ob-disp); letter-spacing: -.01em; color: var(--ob-head); margin: 0 0 8px; }
+.occubuy-sub { color: var(--ob-body); margin: 0 0 20px; }
+@keyframes occubuy-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.occubuy-fade-in { animation: occubuy-fade-in 200ms var(--ob-ease); }
+.occubuy-consent { display: flex; gap: 12px; align-items: flex-start; background: var(--ob-sunk); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
+.occubuy-consent input { margin: 2px 0 0; width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--ob-acc); cursor: pointer; }
+.occubuy-consent label { font-size: 13px; color: var(--ob-ink); line-height: 1.6; cursor: pointer; }
 .occubuy-btn {
-  width: 100%; padding: 14px; border: none; border-radius: 12px;
-  font-size: 14.5px; font-weight: 600; font-family: inherit; cursor: pointer; color: #fff;
-  background: linear-gradient(135deg, var(--occubuy-accent, #f4855c), var(--occubuy-accent-dark, #ea6a3c));
-  box-shadow: 0 4px 12px rgba(234,106,60,0.28);
-  transition: filter 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+  width: 100%; min-height: 48px; padding: 12px 16px; border: 1px solid transparent; border-radius: 12px;
+  font: 600 14.5px/1 var(--ob-disp); cursor: pointer; color: var(--ob-on); background: var(--ob-acc);
+  transition: background-color 200ms var(--ob-ease), transform 120ms var(--ob-ease);
 }
-.occubuy-btn:hover:not(:disabled) { filter: brightness(1.05); box-shadow: 0 6px 16px rgba(234,106,60,0.36); }
-.occubuy-btn:active:not(:disabled) { transform: scale(0.99); }
-.occubuy-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
-.occubuy-btn-secondary { background: none; color: #8a8272; box-shadow: none; border: 1px solid #e7e0d0; margin-top: 10px; }
-.occubuy-btn-secondary:hover:not(:disabled) { background: #f4f1ea; filter: none; }
-.occubuy-iframe-wrap { border: 1px solid #e7e0d0; border-radius: 14px; overflow: hidden; margin-bottom: 16px; background: #fff; }
+.occubuy-btn:hover:not(:disabled) { background: var(--ob-acc2); }
+.occubuy-btn:active:not(:disabled) { transform: scale(.98); }
+.occubuy-btn:focus-visible { outline: 2px solid var(--ob-acc); outline-offset: 2px; }
+.occubuy-btn:disabled { opacity: .38; cursor: not-allowed; }
+.occubuy-btn-secondary { background: transparent; color: var(--ob-ink); border-color: var(--ob-line2); margin-top: 8px; }
+.occubuy-btn-secondary:hover:not(:disabled) { background: var(--ob-sunk); }
+.occubuy-iframe-wrap { border: 1px solid var(--ob-line); border-radius: 12px; overflow: hidden; margin-bottom: 16px; background: #fff; }
 .occubuy-iframe-wrap iframe { width: 100%; height: 220px; border: none; display: block; }
-.occubuy-spinner-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px 0; }
-.occubuy-spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #f1ecfa; border-top-color: var(--occubuy-accent, #f4855c); animation: occubuy-spin 0.8s linear infinite; }
+.occubuy-spinner-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 40px 0; }
+.occubuy-spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--ob-line); border-top-color: var(--ob-acc); animation: occubuy-spin .8s linear infinite; }
 @keyframes occubuy-spin { to { transform: rotate(360deg); } }
-.occubuy-spinner-text { font-size: 13px; color: #8a8272; text-align: center; }
+.occubuy-spinner-text { font-size: 13px; color: var(--ob-muted); text-align: center; }
 .occubuy-success { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 20px; }
-.occubuy-check {
-  width: 52px; height: 52px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--occubuy-accent, #f4855c), var(--occubuy-accent-dark, #ea6a3c)); color: #fff;
-  display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 12px;
-}
-.occubuy-score-label { font-size: 12.5px; color: #8a8272; margin-bottom: 2px; }
-.occubuy-score-value { font-size: 40px; font-weight: 800; color: var(--occubuy-heading, #35205e); margin: 4px 0 10px; }
-.occubuy-score-band { display: inline-block; font-size: 12px; font-weight: 600; color: var(--occubuy-heading, #35205e); background: #f1ecfa; padding: 4px 14px; border-radius: 999px; }
-.occubuy-improve { background: #f1ecfa; border-radius: 10px; padding: 12px 14px; margin-bottom: 20px; }
-.occubuy-improve-label { font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--occubuy-heading, #4a2c85); margin-bottom: 4px; }
-.occubuy-improve-text { font-size: 13px; color: var(--occubuy-heading, #4a2c85); line-height: 1.55; margin: 0; }
-.occubuy-error { background: #fdf2f0; border: 1px solid #f3c6b8; color: #9a3b1f; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-bottom: 16px; }
-.occubuy-card { background: #fff; border: 1px solid #e7e0d0; border-radius: 14px; padding: 22px 20px; margin-bottom: 16px; }
-.occubuy-card-title { font-weight: 700; font-size: 16px; color: var(--occubuy-heading, #35205e); margin: 0 0 6px; }
-.occubuy-card-sub { font-size: 13px; color: #8a8272; line-height: 1.5; margin: 0 0 18px; }
+.occubuy-check { width: 48px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--ob-acc) 16%, #fff); color: var(--ob-ink); display: flex; align-items: center; justify-content: center; font: 600 22px/1 var(--ob-disp); margin-bottom: 12px; }
+.occubuy-score-label { font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); }
+.occubuy-score-value { font: 700 40px/1.05 var(--ob-disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ob-head); margin: 8px 0 12px; }
+.occubuy-score-band { display: inline-block; font: 600 12.5px/1.2 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 6px 12px; border-radius: 8px; }
+.occubuy-improve { background: var(--ob-sunk); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; }
+.occubuy-improve-label { font: 600 11px/1.4 var(--ob-disp); letter-spacing: .14em; text-transform: uppercase; color: var(--ob-muted); margin-bottom: 4px; }
+.occubuy-improve-text { font-size: 13px; color: var(--ob-body); margin: 0; }
+.occubuy-error { border: 1px solid #A3271F; color: #A3271F; background: #fff; border-radius: 12px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px; }
+.occubuy-card { background: #fff; border: 1px solid var(--ob-line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+.occubuy-card-title { font: 600 16px/1.35 var(--ob-disp); color: var(--ob-head); margin: 0 0 4px; }
+.occubuy-card-sub { font-size: 13px; color: var(--ob-body); margin: 0 0 16px; }
 .occubuy-steps { list-style: none; margin: 0 0 20px; padding: 0; }
-.occubuy-step { display: flex; align-items: flex-start; gap: 12px; position: relative; padding-bottom: 18px; }
+.occubuy-step { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 16px; }
 .occubuy-step:last-child { padding-bottom: 0; }
-.occubuy-step-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--occubuy-accent, #f4855c); flex-shrink: 0; position: relative; z-index: 1; }
-.occubuy-step:not(:last-child) .occubuy-step-dot::after { content: ""; position: absolute; top: 8px; left: 3px; width: 1px; height: 22px; background: #e7e0d0; }
-.occubuy-step-text { font-size: 13.5px; color: var(--occubuy-heading, #4a2c85); line-height: 1.4; padding-top: 1px; }
-.occubuy-btn-icon { display: inline-block; margin-right: 6px; }
-.occubuy-provider-row { text-align: center; font-size: 11.5px; color: #8a8272; margin-top: 12px; }
-.occubuy-provider-badge { display: inline-flex; align-items: center; font-weight: 700; color: var(--occubuy-heading, #4a2c85); background: #f1ecfa; padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
-.occubuy-disclosure { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; color: #8a8272; line-height: 1.5; margin-top: 14px; }
+.occubuy-step-dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--ob-acc); flex-shrink: 0; position: relative; }
+.occubuy-step:not(:last-child) .occubuy-step-dot::after { content: ""; position: absolute; top: 8px; left: 3px; width: 2px; height: 22px; background: var(--ob-line); }
+.occubuy-step-text { font-size: 14px; color: var(--ob-ink); line-height: 1.5; }
+.occubuy-btn-icon { display: inline-block; margin-right: 8px; }
+.occubuy-provider-row { text-align: center; font-size: 12px; color: var(--ob-muted); margin-top: 12px; }
+.occubuy-provider-badge { display: inline-flex; font: 600 11px/1.4 var(--ob-disp); color: var(--ob-ink); border: 1px solid var(--ob-line2); padding: 2px 8px; border-radius: 8px; margin-left: 6px; }
+.occubuy-disclosure { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--ob-muted); line-height: 1.5; margin-top: 16px; }
 .occubuy-disclosure-icon { flex-shrink: 0; }
-.occubuy-footnote { font-size: 11.5px; color: #a39c8a; line-height: 1.6; text-align: center; margin: 0; }
+.occubuy-footnote { font-size: 12px; color: var(--ob-faint); text-align: center; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .occubuy-container * { animation: none !important; transition: none !important; } }
 `;
 
 function injectStyles(): void {
@@ -285,7 +295,7 @@ function injectStyles(): void {
     const fontLink = document.createElement("link");
     fontLink.id = FONT_LINK_ID;
     fontLink.rel = "stylesheet";
-    fontLink.href = "https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap";
+    fontLink.href = "https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&family=Sora:wght@400;600&display=swap";
     document.head.append(preconnect1, preconnect2, fontLink);
   }
 
@@ -465,7 +475,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
     // later containerEl.innerHTML = ... swap between screens.
     for (const [field, cssVar] of BRANDING_CSS_VARS) {
       const colour = resolved.branding?.[field];
-      if (colour) containerEl.style.setProperty(cssVar, colour);
+      if (colour) applyBrandColour(containerEl, cssVar, colour);
     }
 
     // Colours the partner set in the portal. Never waited on: the widget is already drawing with
@@ -483,7 +493,7 @@ export function init(config: OccubuyInitConfig): OccubuyScoreInstance {
         for (const [field, cssVar] of BRANDING_CSS_VARS) {
           const colour = config.branding[field];
           if (!resolved.branding?.[field] && typeof colour === "string" && HEX_COLOUR.test(colour)) {
-            containerEl.style.setProperty(cssVar, colour);
+            applyBrandColour(containerEl, cssVar, colour);
           }
         }
       })

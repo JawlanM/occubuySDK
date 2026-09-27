@@ -104,6 +104,34 @@ describe("OccubuyScore.init", () => {
     expect(container.style.getPropertyValue("--occubuy-heading")).toBe("#abcdef");
   });
 
+  it("picks readable button text for the accent: white on dark, ink on light", () => {
+    const cases: Array<[string, string]> = [
+      ["#123456", "#fff"], // dark navy
+      ["#000", "#fff"],
+      ["#F87954", "#1F1719"], // Occubuy coral
+      ["#ffe066", "#1F1719"], // pale yellow
+    ];
+    for (const [accent, text] of cases) {
+      const container = makeContainer();
+      init({
+        apiKey: "pk_sandbox_test",
+        container: "#occubuy-widget",
+        applicant: VALID_APPLICANT,
+        branding: { primaryColor: accent },
+      }).start();
+      expect(container.style.getPropertyValue("--occubuy-on-accent")).toBe(text);
+      container.remove();
+    }
+  });
+
+  it("loads the design system fonts (Outfit + Sora)", () => {
+    makeContainer();
+    init({ apiKey: "pk_sandbox_test", container: "#occubuy-widget", applicant: VALID_APPLICANT }).start();
+    const href = document.getElementById("occubuy-font-link")?.getAttribute("href") ?? "";
+    expect(href).toContain("family=Outfit");
+    expect(href).toContain("family=Sora");
+  });
+
   it("drives consent -> bank connection -> score through to onComplete", async () => {
     const container = makeContainer();
 
